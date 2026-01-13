@@ -15,6 +15,9 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
+# Add project root to path for package imports
+sys.path.insert(0, str(Path(__file__).parent))
+
 
 def get_api_key(args_api_key: Optional[str] = None) -> str:
     """Get API key from args, env, or config."""
@@ -42,14 +45,13 @@ def get_api_key(args_api_key: Optional[str] = None) -> str:
 def cmd_generate_maps(args):
     """Generate ONNX model maps for all models."""
     import subprocess
-    import os
     
     print("=" * 80)
     print("Generating ONNX Model Maps")
     print("=" * 80)
     
     # Run generate_all_maps.py as a script
-    script_path = os.path.join(os.path.dirname(__file__), "generate_all_maps.py")
+    script_path = os.path.join(os.path.dirname(__file__), "utilities", "generate_all_maps.py")
     subprocess.run([sys.executable, script_path], check=True)
     
     print("\n✓ Model maps generated in map_dataset/")
@@ -57,7 +59,7 @@ def cmd_generate_maps(args):
 
 def cmd_train(args):
     """Train RAG pipeline: build knowledge base from training models."""
-    from run_rag_pipeline import setup_pipeline
+    from rag_pipeline.run_rag_pipeline import setup_pipeline
     
     print("=" * 80)
     print("Training RAG Pipeline (Building Knowledge Base)")
@@ -78,10 +80,9 @@ def cmd_train(args):
 
 def cmd_inference(args):
     """Run inference: generate rules and modify models."""
-    from inference_pipeline import InferencePipeline
-    from rag_pipeline import RAGPipeline
-    from train_test_split import load_train_test_split
-    from pathlib import Path
+    from rag_pipeline.inference_pipeline import InferencePipeline
+    from rag_pipeline.rag_pipeline import RAGPipeline
+    from utilities.train_test_split import load_train_test_split
     
     print("=" * 80)
     print("Running Inference Pipeline")
@@ -134,8 +135,7 @@ def cmd_inference(args):
 
 def cmd_generate_rules(args):
     """Generate rules for models (without modifying them)."""
-    from run_rag_pipeline import setup_pipeline, generate_rules_for_models
-    from pathlib import Path
+    from rag_pipeline.run_rag_pipeline import setup_pipeline, generate_rules_for_models
     
     print("=" * 80)
     print("Generating Rules")
@@ -171,8 +171,8 @@ def cmd_generate_rules(args):
 
 def cmd_evaluate(args):
     """Evaluate generated rules against ground truth."""
-    from run_rag_pipeline import setup_pipeline
-    from evaluator import RuleEvaluator
+    from rag_pipeline.run_rag_pipeline import setup_pipeline
+    from evaluation.evaluator import RuleEvaluator
     
     print("=" * 80)
     print("Evaluating Rules")
@@ -207,8 +207,7 @@ def cmd_evaluate(args):
 
 def cmd_complete_workflow(args):
     """Complete workflow: train -> test -> evaluate."""
-    from train_test_split import get_all_models, create_train_test_split
-    from pathlib import Path
+    from utilities.train_test_split import get_all_models, create_train_test_split
     
     print("=" * 80)
     print("Complete Workflow: Train -> Test -> Evaluate")
@@ -253,6 +252,8 @@ def cmd_complete_workflow(args):
     rules_args = argparse.Namespace(
         api_key=api_key,
         test_only=True,
+        train_only=False,
+        all=False,
         use_enhanced=args.use_enhanced
     )
     cmd_generate_rules(rules_args)
@@ -262,6 +263,7 @@ def cmd_complete_workflow(args):
     inference_args = argparse.Namespace(
         api_key=api_key,
         test_set=True,
+        model=None,
         split_file=str(split_file),
         output_dir="inference_results"
     )
@@ -377,4 +379,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

@@ -24,7 +24,9 @@ from enum import Enum
 from collections import defaultdict
 import onnx
 
-from onnx_analyzer import ONNXAnalyzer, ModelAnalysis, NodeAnalysis
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core_analysis.onnx_analyzer import ONNXAnalyzer, ModelAnalysis, NodeAnalysis
 
 
 class Priority(Enum):

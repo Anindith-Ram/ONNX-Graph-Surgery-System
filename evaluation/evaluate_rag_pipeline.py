@@ -18,11 +18,15 @@ from datetime import datetime
 import onnx
 from collections import Counter
 
-from knowledge_base import KnowledgeBaseBuilder
-from production_pipeline import AdvisoryPipeline, AdvisoryConfig
-from onnx_analyzer import ONNXAnalyzer
-from suggestion_applicator import SuggestionApplicator
-from model_comparator import ModelComparator
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from knowledge_base.knowledge_base import KnowledgeBaseBuilder
+from production.production_pipeline import AdvisoryPipeline, AdvisoryConfig
+from core_analysis.onnx_analyzer import ONNXAnalyzer
+from suggestion_pipeline.suggestion_applicator import SuggestionApplicator
+from evaluation.model_comparator import ModelComparator
 
 
 @dataclass

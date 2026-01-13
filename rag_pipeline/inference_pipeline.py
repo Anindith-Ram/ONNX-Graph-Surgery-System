@@ -4,17 +4,19 @@ Complete inference pipeline: Generate rules → Apply rules → Compare with gro
 """
 
 import os
+import sys
 import json
 from pathlib import Path
 from typing import Dict, Optional, Any
 import onnx
 import numpy as np
 
-from rag_pipeline import RAGPipeline
-from difference_extractor import extract_differences
-from rule_parser import RuleParser
-from rule_applicator import RuleApplicator
-from model_comparator import ModelComparator
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from rag_pipeline.rag_pipeline import RAGPipeline
+from core_analysis.difference_extractor import extract_differences
+from legacy.rule_parser import RuleParser
+from legacy.rule_applicator import RuleApplicator
+from evaluation.model_comparator import ModelComparator
 
 
 class InferencePipeline:

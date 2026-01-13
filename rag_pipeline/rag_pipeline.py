@@ -6,13 +6,16 @@ Gemini 3 Pro to generate compilation rules.
 """
 
 import os
+import sys
 import json
 import pickle
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import google.generativeai as genai
-from feature_extractor import FeatureExtractor, extract_all_features
-from difference_extractor import ModelDiff
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core_analysis.feature_extractor import FeatureExtractor, extract_all_features
+from core_analysis.difference_extractor import ModelDiff
 
 
 class VectorStore:

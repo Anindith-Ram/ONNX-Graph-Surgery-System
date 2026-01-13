@@ -31,10 +31,14 @@ from datetime import datetime
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
-from onnx_analyzer import ONNXAnalyzer, ModelAnalysis
-from suggestion_generator import SuggestionGenerator, SuggestionReport
-from rag_suggestion_generator import RAGSuggestionGenerator
-from report_generator import ReportGenerator
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core_analysis.onnx_analyzer import ONNXAnalyzer, ModelAnalysis
+from suggestion_pipeline.suggestion_generator import SuggestionGenerator, SuggestionReport
+from suggestion_pipeline.rag_suggestion_generator import RAGSuggestionGenerator
+from production.report_generator import ReportGenerator
 
 
 @dataclass

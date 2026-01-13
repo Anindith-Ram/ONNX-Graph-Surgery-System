@@ -25,16 +25,19 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-from onnx_analyzer import ONNXAnalyzer, ModelAnalysis, NodeAnalysis
-from suggestion_generator import (
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core_analysis.onnx_analyzer import ONNXAnalyzer, ModelAnalysis, NodeAnalysis
+from suggestion_pipeline.suggestion_generator import (
     SuggestionGenerator, SuggestionReport, Suggestion, SuggestionLocation,
     Priority, ConfidenceScorer
 )
-from rag_retriever import RAGRetriever, detect_model_category
-from response_cache import cached_gemini_call
-from suggestion_scorer import SuggestionScorer
-from api_quota_manager import APIQuotaManager
-from checkpoint_manager import CheckpointManager
+from knowledge_base.rag_retriever import RAGRetriever, detect_model_category
+from knowledge_base.response_cache import cached_gemini_call
+from suggestion_pipeline.suggestion_scorer import SuggestionScorer
+from utilities.api_quota_manager import APIQuotaManager
+from utilities.checkpoint_manager import CheckpointManager
 from datetime import datetime
 
 

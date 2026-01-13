@@ -41,8 +41,10 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-from dataset_analyzer import DatasetAnalyzer, AnalysisReport
-from response_cache import cached_gemini_call
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core_analysis.dataset_analyzer import DatasetAnalyzer, AnalysisReport
+from knowledge_base.response_cache import cached_gemini_call
 
 
 @dataclass

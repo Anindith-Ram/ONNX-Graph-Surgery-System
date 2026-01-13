@@ -191,61 +191,71 @@ python evaluate_rag_pipeline.py --no-enhanced
 ```
 automated-model-surgery/
 │
-├── Core Analysis
-│   ├── onnx_analyzer.py          # Deep ONNX model analysis
-│   ├── dataset_analyzer.py       # Dataset pattern extraction
-│   ├── difference_extractor.py   # Model difference extraction
-│   └── feature_extractor.py      # Feature extraction (base)
+├── core_analysis/                    # Core ONNX Analysis
+│   ├── __init__.py
+│   ├── onnx_analyzer.py              # Deep ONNX model analysis
+│   ├── dataset_analyzer.py           # Dataset pattern extraction
+│   ├── difference_extractor.py       # Model difference extraction
+│   └── feature_extractor.py          # Feature extraction (base)
 │
-├── Knowledge Base
-│   ├── knowledge_base.py         # KB builder and storage
-│   ├── rag_retriever.py          # RAG retrieval logic
-│   └── response_cache.py         # Gemini response caching
+├── knowledge_base/                   # Knowledge Base & RAG
+│   ├── __init__.py
+│   ├── knowledge_base.py             # KB builder and storage
+│   ├── rag_retriever.py              # RAG retrieval logic
+│   └── response_cache.py             # Gemini response caching
 │
-├── Suggestion Pipeline
+├── suggestion_pipeline/              # Suggestion Generation
+│   ├── __init__.py
 │   ├── suggestion_generator.py       # Base suggestion generation
 │   ├── rag_suggestion_generator.py   # RAG-enhanced suggestions
 │   ├── suggestion_scorer.py          # Multi-factor scoring
 │   └── suggestion_applicator.py      # Apply suggestions (graph surgery)
 │
-├── RAG Pipeline
-│   ├── rag_pipeline.py           # Core RAG pipeline
-│   ├── run_rag_pipeline.py       # Training script
-│   └── inference_pipeline.py     # Inference workflow
+├── rag_pipeline/                     # RAG Pipeline
+│   ├── __init__.py
+│   ├── rag_pipeline.py               # Core RAG pipeline
+│   ├── run_rag_pipeline.py           # Training script
+│   └── inference_pipeline.py         # Inference workflow
 │
-├── Evaluation & Comparison
-│   ├── model_comparator.py       # Structural model comparison
-│   ├── evaluator.py              # Rule evaluation metrics
-│   └── evaluate_rag_pipeline.py  # Comprehensive evaluation
+├── evaluation/                       # Evaluation & Comparison
+│   ├── __init__.py
+│   ├── model_comparator.py           # Structural model comparison
+│   ├── evaluator.py                  # Rule evaluation metrics
+│   └── evaluate_rag_pipeline.py      # Comprehensive evaluation
 │
-├── Production Pipeline
-│   ├── production_pipeline.py    # Advisory pipeline
-│   └── report_generator.py       # Report generation (MD/JSON/HTML)
+├── production/                       # Production Pipeline
+│   ├── __init__.py
+│   ├── production_pipeline.py        # Advisory pipeline
+│   └── report_generator.py           # Report generation (MD/JSON/HTML)
 │
-├── Utilities
-│   ├── main.py                   # Main entry point
-│   ├── complete_workflow.py      # All-in-one workflow
-│   ├── train_test_split.py       # Dataset splitting
-│   ├── print_onnx_graph.py       # ONNX graph visualization
-│   ├── generate_all_maps.py      # Generate all model maps
-│   ├── api_quota_manager.py      # API quota management
-│   ├── checkpoint_manager.py     # Checkpoint management
-│   └── pretty_print_cache.py     # Cache inspection
+├── utilities/                        # Utility Modules
+│   ├── __init__.py
+│   ├── complete_workflow.py          # All-in-one workflow
+│   ├── train_test_split.py           # Dataset splitting
+│   ├── print_onnx_graph.py           # ONNX graph visualization
+│   ├── generate_all_maps.py          # Generate all model maps
+│   ├── api_quota_manager.py          # API quota management
+│   ├── checkpoint_manager.py         # Checkpoint management
+│   └── pretty_print_cache.py         # Cache inspection
 │
-├── Legacy/Compatibility
-│   ├── rule_parser.py            # Legacy rule parsing
-│   ├── rule_applicator.py        # Legacy rule application
-│   ├── gemini_model_modifier.py  # Gemini-based modification
-│   └── enhanced_feature_extractor.py  # Gemini-enhanced features
+├── legacy/                           # Legacy/Compatibility
+│   ├── __init__.py
+│   ├── rule_parser.py                # Legacy rule parsing
+│   ├── rule_applicator.py            # Legacy rule application
+│   ├── gemini_model_modifier.py      # Gemini-based modification
+│   └── enhanced_feature_extractor.py # Gemini-enhanced features
 │
-├── Analysis Scripts
+├── scripts/                          # Analysis Scripts
+│   ├── __init__.py
 │   ├── analyze_skipped_suggestions.py    # Debug skipped suggestions
 │   ├── analyze_transformation_issues.py  # Debug transformations
 │   └── create_features_train.py          # Create training features
 │
-├── config.py                     # Configuration (API keys) - NOT TRACKED
-├── requirements.txt              # Python dependencies
-└── README.md                     # This file
+├── main.py                           # Main entry point
+├── config.py                         # Configuration (API keys) - NOT TRACKED
+├── config.py.example                 # Example configuration template
+├── requirements.txt                  # Python dependencies
+└── README.md                         # This file
 ```
 
 ## Key Components

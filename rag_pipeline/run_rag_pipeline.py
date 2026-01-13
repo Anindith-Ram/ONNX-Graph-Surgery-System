@@ -8,16 +8,18 @@ import sys
 import json
 from pathlib import Path
 from typing import List
-from rag_pipeline import RAGPipeline
-from difference_extractor import extract_differences, extract_all_differences
-from feature_extractor import extract_all_features
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from rag_pipeline.rag_pipeline import RAGPipeline
+from core_analysis.difference_extractor import extract_differences, extract_all_differences
+from core_analysis.feature_extractor import extract_all_features
 
 
 def setup_pipeline(api_key: str, rebuild_kb: bool = False, use_enhanced: bool = False):
     """Setup and initialize the RAG pipeline with train/test split."""
-    from train_test_split import load_train_test_split, get_all_models, create_train_test_split
+    from utilities.train_test_split import load_train_test_split, get_all_models, create_train_test_split
     
-    base_dir = Path(__file__).parent
+    base_dir = Path(__file__).parent.parent
     rag_data_dir = base_dir / "rag_data"
     rag_data_dir.mkdir(exist_ok=True)
     
