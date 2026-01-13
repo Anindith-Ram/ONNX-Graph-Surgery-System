@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""
+Configuration file for the RAG pipeline.
+Contains API keys and other settings.
+
+SETUP:
+1. Copy this file to config.py:
+   cp config.py.example config.py
+2. Replace 'your-api-key-here' with your actual Gemini API key
+3. Alternatively, set the GEMINI_API_KEY environment variable
+"""
+
+import os
+
+# =============================================================================
+# Gemini API Key
+# =============================================================================
+# Get your API key from: https://makersuite.google.com/app/apikey
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'your-api-key-here')
+
+# =============================================================================
+# Hybrid Mode Configuration
+# =============================================================================
+# Enable hybrid mode for API quota management
+USE_HYBRID_MODE = os.getenv('USE_HYBRID_MODE', 'False').lower() == 'true'
+
+# Daily API call limit (adjust based on your quota)
+DAILY_API_LIMIT = int(os.getenv('DAILY_API_LIMIT', '250'))
+
+# Directory for checkpoints
+CHECKPOINT_DIR = os.getenv('CHECKPOINT_DIR', 'checkpoints')
+
+# =============================================================================
+# Enhancement Settings
+# =============================================================================
+# Threshold for individual enhancement (None = always enhance)
+INDIVIDUAL_ENHANCEMENT_THRESHOLD = os.getenv('INDIVIDUAL_ENHANCEMENT_THRESHOLD', None)
+if INDIVIDUAL_ENHANCEMENT_THRESHOLD is not None:
+    INDIVIDUAL_ENHANCEMENT_THRESHOLD = int(INDIVIDUAL_ENHANCEMENT_THRESHOLD)
+
+# Number of context chunks for individual enhancement
+INDIVIDUAL_CONTEXT_CHUNKS = int(os.getenv('INDIVIDUAL_CONTEXT_CHUNKS', '10'))
+
+# =============================================================================
+# Checkpoint Settings
+# =============================================================================
+# How often to save checkpoints (every N models)
+CHECKPOINT_FREQUENCY = int(os.getenv('CHECKPOINT_FREQUENCY', '1'))
+
+# Whether to resume from checkpoint if available
+RESUME_FROM_CHECKPOINT = os.getenv('RESUME_FROM_CHECKPOINT', 'True').lower() == 'true'
