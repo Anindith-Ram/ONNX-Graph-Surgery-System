@@ -423,12 +423,3 @@ The system automatically tries multiple Gemini models:
 2. Create a feature branch
 3. Make changes and test
 4. Submit a pull request
-
-## License
-
-See individual file headers for license information.
-
-## Acknowledgments
-
-- ONNX Graph Surgery documentation for compilation best practices
-- Google Gemini API for intelligent suggestion generation
