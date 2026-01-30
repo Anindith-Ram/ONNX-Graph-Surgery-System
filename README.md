@@ -59,8 +59,8 @@ This system uses a **true RAG architecture** where an LLM (Gemini) not only gene
 │  │  • Dataset      │    │  • Blocker ID    │    │  • Gemini generation   │  │
 │  │  • Patterns     │    │  • Shape analysis│    │  • Priority scoring    │  │
 │  └─────────────────┘    └──────────────────┘    └────────────────────────┘  │
-│           │                                               │                  │
-│           ▼                                               ▼                  │
+│           │                                               │                 │
+│           ▼                                               ▼                 │
 │  ┌─────────────────┐                          ┌────────────────────────┐    │
 │  │  RAG Retriever  │                          │ Suggestion Applicator  │    │
 │  │  ─────────────  │                          │ ────────────────────   │    │
@@ -68,8 +68,8 @@ This system uses a **true RAG architecture** where an LLM (Gemini) not only gene
 │  │  • Multi-factor │                          │ • Node replacement     │    │
 │  │  • Ranking      │                          │ • Shape transformation │    │
 │  └─────────────────┘                          └────────────────────────┘    │
-│                                                          │                   │
-│                                                          ▼                   │
+│                                                          │                  │
+│                                                          ▼                  │
 │                                               ┌────────────────────────┐    │
 │                                               │   Model Comparator     │    │
 │                                               │   ────────────────     │    │
