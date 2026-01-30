@@ -7,8 +7,8 @@ import os
 import json
 from typing import Dict, List, Any, Optional
 import google.generativeai as genai
-from feature_extractor import FeatureExtractor
-from difference_extractor import ModelDiff
+from core_analysis.feature_extractor import FeatureExtractor
+from core_analysis.difference_extractor import ModelDiff
 
 
 class EnhancedFeatureExtractor(FeatureExtractor):
@@ -27,8 +27,7 @@ class EnhancedFeatureExtractor(FeatureExtractor):
     
     def _initialize_gemini_model(self):
         """Initialize Gemini model with fallback logic."""
-        model_names = ['gemini-3-pro', 'gemini-3.0-pro', 'gemini-3-pro-preview', 
-                      'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash-exp']
+        model_names = ['gemini-3-pro-preview']
         
         for i, model_name in enumerate(model_names):
             try:
@@ -79,8 +78,7 @@ class EnhancedFeatureExtractor(FeatureExtractor):
             return {}
         
         # Get current model index to know which to try next
-        model_names = ['gemini-3-pro', 'gemini-3.0-pro', 'gemini-3-pro-preview', 
-                      'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash-exp']
+        model_names = ['gemini-3-pro-preview']
         current_index = model_names.index(self.gemini_model_name) if self.gemini_model_name in model_names else -1
         
         try:
@@ -217,7 +215,7 @@ def extract_all_features_enhanced(
     output_file: str = None
 ) -> List[Dict[str, Any]]:
     """Extract enhanced features for training models only."""
-    from difference_extractor import extract_differences
+    from core_analysis.difference_extractor import extract_differences
     
     extractor = EnhancedFeatureExtractor(gemini_api_key)
     features = []

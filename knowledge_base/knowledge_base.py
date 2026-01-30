@@ -84,13 +84,41 @@ class KnowledgeBase:
     
     @classmethod
     def load(cls, path: str) -> 'KnowledgeBase':
-        """Load knowledge base from JSON file."""
-        with open(path, 'r') as f:
-            data = json.load(f)
+        """Load knowledge base from JSON or pickle file."""
+        import pickle
+        from pathlib import Path
         
-        chunks = [KnowledgeChunk(**chunk) for chunk in data['chunks']]
-        kb = cls(chunks=chunks, version=data.get('version', '1.0.0'))
-        return kb
+        file_path = Path(path)
+        
+        # Detect file type by extension
+        if file_path.suffix == '.pkl':
+            # Load pickle file
+            with open(path, 'rb') as f:
+                obj = pickle.load(f)
+            
+            # Check if it's already a KnowledgeBase
+            if isinstance(obj, cls):
+                return obj
+            
+            # Check if it's a VectorStore (old format)
+            if hasattr(obj, 'metadata') and hasattr(obj, 'embeddings'):
+                # Old format detected - cannot auto-convert
+                raise ValueError(
+                    f"Old knowledge base format detected (VectorStore). "
+                    f"Please rebuild the knowledge base using:\n"
+                    f"  python main.py train --rebuild-kb"
+                )
+            
+            # Unknown format
+            raise ValueError(f"Unknown knowledge base format in {path}")
+        else:
+            # Load JSON file
+            with open(path, 'r') as f:
+                data = json.load(f)
+            
+            chunks = [KnowledgeChunk(**chunk) for chunk in data['chunks']]
+            kb = cls(chunks=chunks, version=data.get('version', '1.0.0'))
+            return kb
 
 
 class KnowledgeBaseBuilder:
@@ -321,7 +349,7 @@ class KnowledgeBaseBuilder:
                 recommendations = analyzer._generate_recommendations(patterns, op_stats)
                 
                 # Create a minimal report for KB extraction
-                from dataset_analyzer import AnalysisReport
+                from core_analysis.dataset_analyzer import AnalysisReport
                 report = AnalysisReport(
                     total_models=len(model_diffs),
                     model_diffs=model_diffs,
@@ -774,6 +802,306 @@ OUTPUT FORMAT (JSON only, no markdown):
         chunk.metadata['gemini_enhanced'] = True
         
         return chunk
+
+
+# =============================================================================
+# Pattern Database for Enhanced Learning
+# =============================================================================
+
+class TransformationType:
+    """Types of transformations."""
+    REMOVE = "remove"
+    ADD = "add"
+    REPLACE = "replace"
+    RESHAPE = "reshape"
+    REWIRE = "rewire"
+
+
+@dataclass
+class NodeContext:
+    """Context around a node in the graph."""
+    position: str = "middle"  # "near_input", "middle", "near_output"
+    input_ops: List[str] = field(default_factory=list)  # Op types of input producers
+    output_ops: List[str] = field(default_factory=list)  # Op types of output consumers
+    input_shapes: List[Tuple] = field(default_factory=list)
+    output_shapes: List[Tuple] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict:
+        return {
+            'position': self.position,
+            'input_ops': self.input_ops,
+            'output_ops': self.output_ops,
+            'input_shapes': [list(s) for s in self.input_shapes],
+            'output_shapes': [list(s) for s in self.output_shapes],
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'NodeContext':
+        return cls(
+            position=data.get('position', 'middle'),
+            input_ops=data.get('input_ops', []),
+            output_ops=data.get('output_ops', []),
+            input_shapes=[tuple(s) for s in data.get('input_shapes', [])],
+            output_shapes=[tuple(s) for s in data.get('output_shapes', [])],
+        )
+
+
+@dataclass
+class LearnedPattern:
+    """A transformation pattern learned from ground truth models."""
+    id: str
+    action: str  # TransformationType value
+    op_type: str
+    context: NodeContext = field(default_factory=NodeContext)
+    model_category: str = "Other"
+    frequency: int = 1
+    confidence: float = 1.0
+    example_models: List[str] = field(default_factory=list)
+    replacement_ops: List[str] = field(default_factory=list)  # For REPLACE patterns
+    
+    def to_dict(self) -> Dict:
+        return {
+            'id': self.id,
+            'action': self.action,
+            'op_type': self.op_type,
+            'context': self.context.to_dict(),
+            'model_category': self.model_category,
+            'frequency': self.frequency,
+            'confidence': self.confidence,
+            'example_models': self.example_models,
+            'replacement_ops': self.replacement_ops,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'LearnedPattern':
+        return cls(
+            id=data.get('id', ''),
+            action=data.get('action', TransformationType.REMOVE),
+            op_type=data.get('op_type', ''),
+            context=NodeContext.from_dict(data.get('context', {})),
+            model_category=data.get('model_category', 'Other'),
+            frequency=data.get('frequency', 1),
+            confidence=data.get('confidence', 1.0),
+            example_models=data.get('example_models', []),
+            replacement_ops=data.get('replacement_ops', []),
+        )
+
+
+class PatternDatabase:
+    """
+    Database of learned transformation patterns from ground truth models.
+    
+    Stores node-level patterns with graph context for similarity matching.
+    """
+    
+    def __init__(self):
+        self.patterns: List[LearnedPattern] = []
+        self.version = "1.0.0"
+        self._pattern_index: Dict[str, List[LearnedPattern]] = {}  # op_type -> patterns
+        self._category_index: Dict[str, List[LearnedPattern]] = {}  # category -> patterns
+    
+    def add_pattern(self, pattern: LearnedPattern) -> None:
+        """Add a pattern to the database."""
+        # Check for existing similar pattern
+        existing = self._find_similar_pattern(pattern)
+        if existing:
+            # Merge with existing
+            existing.frequency += 1
+            existing.confidence = (existing.confidence + pattern.confidence) / 2
+            if pattern.example_models:
+                for model in pattern.example_models:
+                    if model not in existing.example_models:
+                        existing.example_models.append(model)
+        else:
+            # Add new pattern
+            self.patterns.append(pattern)
+            self._update_indices(pattern)
+    
+    def add_patterns(self, patterns: List[LearnedPattern]) -> None:
+        """Add multiple patterns."""
+        for pattern in patterns:
+            self.add_pattern(pattern)
+    
+    def _find_similar_pattern(self, pattern: LearnedPattern) -> Optional[LearnedPattern]:
+        """Find an existing pattern similar to the given one."""
+        candidates = self._pattern_index.get(pattern.op_type, [])
+        for candidate in candidates:
+            if (candidate.action == pattern.action and
+                candidate.model_category == pattern.model_category and
+                self._contexts_similar(candidate.context, pattern.context)):
+                return candidate
+        return None
+    
+    def _contexts_similar(self, ctx1: NodeContext, ctx2: NodeContext) -> bool:
+        """Check if two contexts are similar enough to merge."""
+        # Same position
+        if ctx1.position != ctx2.position:
+            return False
+        
+        # Similar input ops (at least 50% overlap)
+        if ctx1.input_ops and ctx2.input_ops:
+            overlap = len(set(ctx1.input_ops) & set(ctx2.input_ops))
+            max_len = max(len(ctx1.input_ops), len(ctx2.input_ops))
+            if overlap / max_len < 0.5:
+                return False
+        
+        return True
+    
+    def _update_indices(self, pattern: LearnedPattern) -> None:
+        """Update internal indices."""
+        # Op type index
+        if pattern.op_type not in self._pattern_index:
+            self._pattern_index[pattern.op_type] = []
+        self._pattern_index[pattern.op_type].append(pattern)
+        
+        # Category index
+        if pattern.model_category not in self._category_index:
+            self._category_index[pattern.model_category] = []
+        self._category_index[pattern.model_category].append(pattern)
+    
+    def find_patterns(
+        self,
+        op_type: Optional[str] = None,
+        action: Optional[str] = None,
+        model_category: Optional[str] = None,
+    ) -> List[LearnedPattern]:
+        """Find patterns matching criteria."""
+        results = self.patterns
+        
+        if op_type:
+            results = [p for p in results if p.op_type == op_type]
+        if action:
+            results = [p for p in results if p.action == action]
+        if model_category:
+            results = [p for p in results if p.model_category == model_category]
+        
+        return sorted(results, key=lambda p: p.frequency, reverse=True)
+    
+    def find_similar(
+        self,
+        query: str,
+        model_category: Optional[str] = None,
+        top_k: int = 5,
+    ) -> List[LearnedPattern]:
+        """Find patterns similar to a query string."""
+        # Simple keyword matching
+        query_lower = query.lower()
+        results = []
+        
+        for pattern in self.patterns:
+            score = 0.0
+            
+            # Op type match
+            if pattern.op_type.lower() in query_lower:
+                score += 0.5
+            
+            # Action match
+            if pattern.action.lower() in query_lower:
+                score += 0.3
+            
+            # Category match
+            if model_category and pattern.model_category == model_category:
+                score += 0.2
+            elif model_category is None:
+                score += 0.1
+            
+            if score > 0:
+                results.append((pattern, score * pattern.confidence))
+        
+        # Sort by score and return top_k
+        results.sort(key=lambda x: x[1], reverse=True)
+        return [p for p, _ in results[:top_k]]
+    
+    def get_patterns_for_category(
+        self,
+        model_category: str,
+        min_frequency: int = 1,
+    ) -> List[LearnedPattern]:
+        """Get all patterns for a model category."""
+        patterns = self._category_index.get(model_category, [])
+        return [p for p in patterns if p.frequency >= min_frequency]
+    
+    def compute_pattern_frequencies(self) -> None:
+        """Recompute pattern frequencies from example models."""
+        for pattern in self.patterns:
+            pattern.frequency = max(1, len(pattern.example_models))
+    
+    def compute_success_rates(self) -> None:
+        """Compute success rates (confidence) based on frequency."""
+        total_patterns = len(self.patterns)
+        if total_patterns == 0:
+            return
+        
+        max_freq = max(p.frequency for p in self.patterns)
+        for pattern in self.patterns:
+            # Normalize frequency to confidence
+            pattern.confidence = pattern.frequency / max_freq
+    
+    def save(self, path: str) -> None:
+        """Save pattern database to file."""
+        data = {
+            'version': self.version,
+            'patterns': [p.to_dict() for p in self.patterns],
+        }
+        with open(path, 'w') as f:
+            json.dump(data, f, indent=2)
+    
+    @classmethod
+    def load(cls, path: str) -> 'PatternDatabase':
+        """Load pattern database from JSON or pickle file."""
+        import pickle
+        from pathlib import Path
+        
+        file_path = Path(path)
+        
+        # Try to detect file format by content, not just extension
+        # First try pickle (if .pkl extension)
+        if file_path.suffix == '.pkl':
+            try:
+                with open(path, 'rb') as f:
+                    obj = pickle.load(f)
+                
+                # Check if it's already a PatternDatabase
+                if isinstance(obj, cls):
+                    return obj
+                
+                # Unknown format
+                raise ValueError(f"Unknown pattern database format in {path}")
+            except (pickle.UnpicklingError, EOFError, KeyError, UnicodeDecodeError):
+                # Not a valid pickle file, try JSON instead
+                pass
+        
+        # Load as JSON file (either .json extension or pickle failed)
+        with open(path, 'r') as f:
+            data = json.load(f)
+        
+        db = cls()
+        db.version = data.get('version', '1.0.0')
+        
+        for pattern_data in data.get('patterns', []):
+            pattern = LearnedPattern.from_dict(pattern_data)
+            db.patterns.append(pattern)
+            db._update_indices(pattern)
+        
+        return db
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary."""
+        return {
+            'version': self.version,
+            'patterns': [p.to_dict() for p in self.patterns],
+            'stats': {
+                'total_patterns': len(self.patterns),
+                'by_action': {
+                    action: len([p for p in self.patterns if p.action == action])
+                    for action in [TransformationType.REMOVE, TransformationType.ADD, 
+                                   TransformationType.REPLACE, TransformationType.RESHAPE]
+                },
+                'by_category': {
+                    cat: len(patterns) for cat, patterns in self._category_index.items()
+                },
+            },
+        }
 
 
 if __name__ == "__main__":

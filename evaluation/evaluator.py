@@ -5,10 +5,13 @@ Evaluation system to compare RAG-generated rules vs ground truth modified models
 
 import os
 import json
+import sys
 from typing import Dict, List, Any, Tuple
 from pathlib import Path
-from difference_extractor import extract_differences, ModelDiff
-from feature_extractor import FeatureExtractor
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core_analysis.difference_extractor import extract_differences, ModelDiff
+from core_analysis.feature_extractor import FeatureExtractor
 
 
 class RuleEvaluator:

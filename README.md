@@ -11,16 +11,47 @@ This system uses a **true RAG architecture** where an LLM (Gemini) not only gene
 - **Intelligent Analysis**: Deep ONNX graph analysis to identify compilation blockers
 - **RAG-Enhanced Suggestions**: Context-aware suggestions using knowledge from successful transformations
 - **Automated Graph Surgery**: Apply suggestions to modify ONNX models programmatically
+- **Agentic Pipeline**: ReAct-style agents with strategic planning, state management, and adaptive execution
 - **Structural Comparison**: Compare suggested modifications against ground truth
 - **Comprehensive Evaluation**: Precision, recall, transformation accuracy metrics
+- **Automated Testing**: Test suite for agent system validation
+
+## Recent Updates
+
+### Agentic Pipeline System
+- **ReAct-style agents** with multi-step reasoning and tool usage
+- **Strategic planning** for complex model transformations
+- **State management** and adaptive execution
+- **Feedback loops** for continuous improvement
+- **Pattern database integration** for historical learning
+
+### Project Reorganization
+- Scripts consolidated in `scripts/` directory
+- New `agents/` package for agentic pipeline
+- Test suite added in `tests/` directory
+- Enhanced dependency management with modern LLM libraries
+
+### Enhanced LLM Integration
+- Replaced LangChain with `litellm` and `instructor` for better control
+- Type-safe outputs with Pydantic models
+- Improved error handling and retry logic
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         AUTOMATED MODEL SURGERY                              │
+│                         AUTOMATED MODEL SURGERY                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                        AGENTIC PIPELINE (NEW)                         │  │
+│  │  ┌──────────────┐   ┌──────────────┐   ┌────────────────────────┐   │  │
+│  │  │   Strategy   │──▶│    State     │──▶│  Executor & Feedback   │   │  │
+│  │  │   Planner    │   │  Management  │   │      Collection        │   │  │
+│  │  └──────────────┘   └──────────────┘   └────────────────────────┘   │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                    │                                        │
+│                                    ▼                                        │
 │  ┌─────────────────┐    ┌──────────────────┐    ┌────────────────────────┐  │
 │  │  Knowledge Base │    │   ONNX Analyzer  │    │  Suggestion Generator  │  │
 │  │  ───────────────│    │  ──────────────  │    │  ────────────────────  │  │
@@ -57,7 +88,7 @@ Training Phase (Build Knowledge Base):
     ↓
   Extract Patterns → Build Knowledge Chunks → Create Vector Store
 
-Inference Phase (Generate & Apply Suggestions):
+Inference Phase (Standard RAG):
   Unseen Model
     ↓
   [1] ANALYZE: Deep ONNX analysis to identify blockers
@@ -71,6 +102,22 @@ Inference Phase (Generate & Apply Suggestions):
   [5] COMPARE: Structural comparison with ground truth
     ↓
   Modified Model (Compilable) + Evaluation Metrics
+
+Agentic Pipeline (NEW - ReAct Style):
+  Unseen Model
+    ↓
+  [1] PLAN: Strategic analysis and transformation planning
+    ↓
+  [2] EXECUTE: Multi-step reasoning with state management
+      ↓ (feedback loop)
+      ├─▶ THOUGHT: Analyze current state and plan next action
+      ├─▶ ACTION: Use tools (analyzer, RAG, applicator)
+      ├─▶ OBSERVE: Evaluate results and collect feedback
+      └─▶ ADAPT: Adjust strategy based on outcomes
+    ↓
+  [3] EVALUATE: Comprehensive evaluation with diagnostics
+    ↓
+  Modified Model + Detailed Report + Performance Metrics
 ```
 
 ## Quick Start
@@ -159,7 +206,19 @@ python main.py evaluate --test-only
 python main.py workflow --api-key YOUR_KEY
 ```
 
-### Advisory Pipeline (Recommended for Production)
+### Agentic Pipeline (Recommended for Complex Models)
+
+The new agentic pipeline provides intelligent, multi-step reasoning for complex models:
+
+```bash
+# Run the agentic pipeline on a model
+python -m agents.pipeline --model path/to/model.onnx
+
+# With custom configuration
+python -m agents.pipeline --model path/to/model.onnx --max-iterations 10 --strategy adaptive
+```
+
+### Advisory Pipeline (Production)
 
 The production pipeline provides an advisory system for analyzing models:
 
@@ -186,10 +245,35 @@ python evaluate_rag_pipeline.py --skip-kb-build
 python evaluate_rag_pipeline.py --no-enhanced
 ```
 
+### Running Tests
+
+Run the test suite to validate the agent system:
+
+```bash
+# Run all tests
+python -m pytest tests/
+
+# Run specific test file
+python -m pytest tests/test_agents.py
+
+# Run with verbose output
+python -m pytest tests/ -v
+```
+
 ## Project Structure
 
 ```
 automated-model-surgery/
+│
+├── agents/                           # Agentic Pipeline System (NEW)
+│   ├── __init__.py
+│   ├── pipeline.py                   # ReAct-style agentic pipeline
+│   ├── strategy_planner.py           # Strategic planning for transformations
+│   ├── executor.py                   # State machine execution
+│   ├── state.py                      # Pipeline state management
+│   ├── diagnostics.py                # Feedback collection & analysis
+│   ├── llm_client.py                 # LLM integration
+│   └── tools.py                      # Agent tools & actions
 │
 ├── core_analysis/                    # Core ONNX Analysis
 │   ├── __init__.py
@@ -228,15 +312,25 @@ automated-model-surgery/
 │   ├── production_pipeline.py        # Advisory pipeline
 │   └── report_generator.py           # Report generation (MD/JSON/HTML)
 │
+├── tests/                            # Test Suite (NEW)
+│   ├── __init__.py
+│   ├── test_agents.py                # Agent system tests
+│   └── test_diagnostics.py           # Diagnostics tests
+│
 ├── utilities/                        # Utility Modules
 │   ├── __init__.py
-│   ├── complete_workflow.py          # All-in-one workflow
 │   ├── train_test_split.py           # Dataset splitting
-│   ├── print_onnx_graph.py           # ONNX graph visualization
-│   ├── generate_all_maps.py          # Generate all model maps
 │   ├── api_quota_manager.py          # API quota management
-│   ├── checkpoint_manager.py         # Checkpoint management
-│   └── pretty_print_cache.py         # Cache inspection
+│   └── checkpoint_manager.py         # Checkpoint management
+│
+├── scripts/                          # Analysis & Workflow Scripts
+│   ├── __init__.py
+│   ├── complete_workflow.py          # All-in-one workflow
+│   ├── generate_all_maps.py          # Generate all model maps
+│   ├── print_onnx_graph.py           # ONNX graph visualization
+│   ├── pretty_print_cache.py         # Cache inspection
+│   ├── analyze_skipped_suggestions.py    # Debug skipped suggestions
+│   └── analyze_transformation_issues.py  # Debug transformations
 │
 ├── legacy/                           # Legacy/Compatibility
 │   ├── __init__.py
@@ -245,11 +339,8 @@ automated-model-surgery/
 │   ├── gemini_model_modifier.py      # Gemini-based modification
 │   └── enhanced_feature_extractor.py # Gemini-enhanced features
 │
-├── scripts/                          # Analysis Scripts
-│   ├── __init__.py
-│   ├── analyze_skipped_suggestions.py    # Debug skipped suggestions
-│   ├── analyze_transformation_issues.py  # Debug transformations
-│   └── create_features_train.py          # Create training features
+├── react_results_test/               # Test Results & Reports
+│   └── mt5_small_encoder_report.json # Example test output
 │
 ├── main.py                           # Main entry point
 ├── config.py                         # Configuration (API keys) - NOT TRACKED
@@ -298,6 +389,22 @@ Compares models structurally:
 - Shape matching
 - Transformation accuracy metrics
 - Critical area analysis
+
+### 6. Agentic Pipeline (`agents/pipeline.py`)
+
+**NEW**: ReAct-style agentic system for intelligent graph surgery:
+- **Strategic Planning**: Analyzes model complexity and plans transformation strategy
+- **State Management**: Tracks pipeline state across execution steps
+- **Adaptive Execution**: Adjusts strategy based on feedback and results
+- **Tool Integration**: Uses analyzer, suggestion generator, and applicator as tools
+- **Feedback Loop**: Learns from failures and adjusts approach
+- **Pattern Database**: Leverages historical transformation patterns
+
+The agentic pipeline provides:
+- Multi-step reasoning for complex models
+- Automatic error recovery and retry logic
+- Progress tracking and checkpointing
+- Comprehensive evaluation and reporting
 
 ## Evaluation Metrics
 
@@ -381,8 +488,12 @@ Based on the ONNX Graph Surgery documentation, this system applies:
 See `requirements.txt`:
 - `onnx>=1.20.0` - ONNX model handling
 - `google-generativeai>=0.8.0` - Gemini API
+- `litellm>=1.0.0` - Unified LLM API interface
+- `instructor>=1.0.0` - Structured LLM outputs
+- `pydantic>=2.0.0` - Type-safe data models
 - `numpy>=1.23.2` - Numerical operations
 - `onnxruntime>=1.16.0` - (Optional) Model execution for comparison
+- `pytest` - (Optional) For running test suite
 
 ## Troubleshooting
 

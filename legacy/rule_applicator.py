@@ -6,8 +6,8 @@ This is the core RAG application - using LLM to modify models.
 
 import onnx
 from typing import List, Dict, Optional
-from rule_parser import ExecutableRule
-from gemini_model_modifier import GeminiModelModifier
+from .rule_parser import ExecutableRule
+from .gemini_model_modifier import GeminiModelModifier
 import onnx.checker
 
 

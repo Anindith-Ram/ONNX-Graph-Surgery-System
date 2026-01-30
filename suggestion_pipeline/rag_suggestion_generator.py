@@ -248,7 +248,7 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
         else:
             self.quota_manager = None
             self.checkpoint_manager = None
-            self.scorer = None
+            # Keep the scorer from parent class (ConfidenceScorer) - don't override to None
         
         if self.use_rag:
             if not api_key:
@@ -1721,7 +1721,7 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
         
         if not node_analysis:
             # Create minimal NodeAnalysis - need to provide all required fields
-            from onnx_analyzer import NodeAnalysis
+            from core_analysis.onnx_analyzer import NodeAnalysis
             node_analysis = NodeAnalysis(
                 node_id=len(analysis.nodes),
                 name=node.name,  # Use 'name', not 'node_name'
@@ -1895,7 +1895,7 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
                 break
         
         if not node_analysis:
-            from onnx_analyzer import NodeAnalysis
+            from core_analysis.onnx_analyzer import NodeAnalysis
             node_analysis = NodeAnalysis(
                 node_id=len(analysis.nodes),
                 name=target_node.name,  # Use 'name', not 'node_name'

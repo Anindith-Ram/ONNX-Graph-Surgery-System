@@ -51,7 +51,7 @@ def cmd_generate_maps(args):
     print("=" * 80)
     
     # Run generate_all_maps.py as a script
-    script_path = os.path.join(os.path.dirname(__file__), "utilities", "generate_all_maps.py")
+    script_path = os.path.join(os.path.dirname(__file__), "scripts", "generate_all_maps.py")
     subprocess.run([sys.executable, script_path], check=True)
     
     print("\n✓ Model maps generated in map_dataset/")
@@ -289,6 +289,147 @@ def cmd_complete_workflow(args):
     print(f"  - Evaluation: {rag_data_dir}/evaluation_results.json")
 
 
+def cmd_react(args):
+    """Run graph surgery pipeline with state machine executor."""
+    from agents.pipeline import GraphSurgeryPipeline
+    from agents.config import PipelineConfig, AgentConfig, StrategyConfig
+    
+    print("=" * 80)
+    print("Graph Surgery Pipeline")
+    print("=" * 80)
+    
+    api_key = get_api_key(args.api_key)
+    
+    # Create configuration
+    agent_config = AgentConfig(
+        max_iterations=args.max_iterations,
+        verbose=args.verbose,
+        use_strategy_planning=args.use_strategy,
+        use_pattern_db=getattr(args, 'use_pattern_db', True),
+    )
+    
+    strategy_config = StrategyConfig(
+        verbose=args.verbose,
+        use_pattern_db=getattr(args, 'use_pattern_db', True),
+    )
+    
+    config = PipelineConfig(
+        agent_config=agent_config,
+        strategy_config=strategy_config,
+        output_dir=args.output_dir,
+        use_pattern_db=getattr(args, 'use_pattern_db', True),
+    )
+    
+    # Initialize pipeline
+    pipeline = GraphSurgeryPipeline(api_key=api_key, config=config)
+    
+    if args.test_set:
+        # Process test set
+        from utilities.train_test_split import load_train_test_split
+        _, test_models = load_train_test_split(args.split_file)
+        
+        print(f"\nProcessing {len(test_models)} test models...")
+        
+        # Find model paths
+        base_dir = Path(__file__).parent
+        dataset_dir = base_dir / "dataset"
+        
+        model_paths = []
+        ground_truth_paths = []
+        
+        for model_name in test_models:
+            model_dir = dataset_dir / model_name
+            
+            # Find original model
+            original_path = None
+            for orig_dir in ["original", "Original"]:
+                orig_full = model_dir / orig_dir
+                if orig_full.exists():
+                    for file in orig_full.iterdir():
+                        if file.suffix == '.onnx':
+                            original_path = str(file)
+                            break
+                    if original_path:
+                        break
+            
+            # Find ground truth model
+            gt_path = None
+            for mod_dir in ["modified", "Modified"]:
+                mod_full = model_dir / mod_dir
+                if mod_full.exists():
+                    for file in mod_full.iterdir():
+                        if file.suffix == '.onnx':
+                            gt_path = str(file)
+                            break
+                    if gt_path:
+                        break
+            
+            if original_path:
+                model_paths.append(original_path)
+                ground_truth_paths.append(gt_path)
+        
+        # Process models
+        results = []
+        for i, (model_path, gt_path) in enumerate(zip(model_paths, ground_truth_paths)):
+            print(f"\n[{i+1}/{len(model_paths)}] {Path(model_path).parent.parent.name}")
+            try:
+                result = pipeline.process(model_path, gt_path)
+                results.append(result)
+            except Exception as e:
+                print(f"  Error: {e}")
+        
+        # Summary
+        success_count = sum(1 for r in results if r.success)
+        print(f"\n{'='*80}")
+        print("Summary")
+        print(f"{'='*80}")
+        print(f"Processed: {len(results)}")
+        print(f"Successful: {success_count}")
+        print(f"Success rate: {success_count/len(results):.1%}" if results else "N/A")
+        print(f"Results saved to: {args.output_dir}/")
+        
+    elif args.model:
+        # Process single model
+        print(f"\nProcessing: {args.model}")
+        
+        # Try to find ground truth
+        model_path = Path(args.model)
+        gt_path = None
+        
+        # Check if model is in dataset structure
+        if model_path.parent.name.lower() == 'original':
+            model_dir = model_path.parent.parent
+            for mod_dir in ["modified", "Modified"]:
+                mod_full = model_dir / mod_dir
+                if mod_full.exists():
+                    for file in mod_full.iterdir():
+                        if file.suffix == '.onnx':
+                            gt_path = str(file)
+                            break
+                    if gt_path:
+                        break
+        
+        result = pipeline.process(args.model, gt_path)
+        
+        print(f"\n{'='*80}")
+        print(f"Result: {'SUCCESS' if result.success else 'PARTIAL'}")
+        print(f"{'='*80}")
+        print(f"Suggestions: {result.suggestions_count}")
+        if result.execution_result:
+            print(f"Iterations: {result.execution_result.get('iterations', 0)}")
+            feedback_summary = result.execution_result.get('feedback_summary', {})
+            print(f"Success rate: {feedback_summary.get('success_rate', 0):.1%}")
+        if result.evaluation:
+            print(f"Similarity: {result.evaluation.get('overall_similarity', 0):.1%}")
+        print(f"Time: {result.total_time_seconds:.1f}s")
+        if result.modified_model_path:
+            print(f"Modified model: {result.modified_model_path}")
+        
+    else:
+        print("Error: Specify --model or --test-set")
+        sys.exit(1)
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -307,6 +448,15 @@ Examples:
 
   # Complete workflow
   python main.py workflow
+
+  # Run graph surgery pipeline on single model
+  python main.py react --model path/to/model.onnx --verbose
+
+  # Run pipeline on test set with strategic planning
+  python main.py react --test-set --use-strategy --max-iterations 20
+  
+  # Run pipeline without pattern database
+  python main.py react --model path/to/model.onnx --no-pattern-db
         """
     )
     
@@ -358,6 +508,20 @@ Examples:
     parser_workflow.add_argument('--use-enhanced', action='store_true', default=False, help='Use Gemini-enhanced features')
     parser_workflow.add_argument('--no-use-enhanced', dest='use_enhanced', action='store_false', help='Disable Gemini-enhanced features')
     
+    # Graph Surgery Pipeline (State Machine)
+    parser_react = subparsers.add_parser('react', help='Run graph surgery pipeline with state machine executor')
+    parser_react.add_argument('--api-key', help='API key (Gemini)')
+    parser_react.add_argument('--model', help='Single model to process')
+    parser_react.add_argument('--test-set', action='store_true', help='Process all test models')
+    parser_react.add_argument('--split-file', default='rag_data/train_test_split.json', help='Train/test split file')
+    parser_react.add_argument('--output-dir', default='react_results', help='Output directory')
+    parser_react.add_argument('--use-strategy', action='store_true', default=True, help='Enable strategic planning (default: True)')
+    parser_react.add_argument('--no-strategy', dest='use_strategy', action='store_false', help='Disable strategic planning')
+    parser_react.add_argument('--use-pattern-db', action='store_true', default=True, help='Use pattern database (default: True)')
+    parser_react.add_argument('--no-pattern-db', dest='use_pattern_db', action='store_false', help='Disable pattern database')
+    parser_react.add_argument('--max-iterations', type=int, default=15, help='Max iterations (default: 15)')
+    parser_react.add_argument('--verbose', action='store_true', help='Verbose output')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -371,7 +535,8 @@ Examples:
         'inference': cmd_inference,
         'generate-rules': cmd_generate_rules,
         'evaluate': cmd_evaluate,
-        'workflow': cmd_complete_workflow
+        'workflow': cmd_complete_workflow,
+        'react': cmd_react,
     }
     
     commands[args.command](args)

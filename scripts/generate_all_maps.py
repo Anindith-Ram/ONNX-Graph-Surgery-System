@@ -8,6 +8,12 @@ import os
 import subprocess
 from pathlib import Path
 
+
+def get_project_root():
+    """Get the project root directory (parent of scripts/)."""
+    return Path(__file__).parent.parent
+
+
 def find_onnx_files(model_dir):
     """Find original and modified ONNX files in a model directory."""
     original_path = None
@@ -38,12 +44,14 @@ def find_onnx_files(model_dir):
     
     return original_path, modified_path
 
+
 def run_print_onnx_graph(onnx_path):
     """Run the print_onnx_graph script and capture output."""
     script_path = os.path.join(os.path.dirname(__file__), "print_onnx_graph.py")
     # Use venv Python if available, otherwise system Python
-    venv_python = os.path.join(os.path.dirname(__file__), "venv", "bin", "python3")
-    python_cmd = venv_python if os.path.exists(venv_python) else "python3"
+    project_root = get_project_root()
+    venv_python = project_root / "venv" / "bin" / "python3"
+    python_cmd = str(venv_python) if venv_python.exists() else "python3"
     try:
         result = subprocess.run(
             [python_cmd, script_path, onnx_path],
@@ -55,22 +63,27 @@ def run_print_onnx_graph(onnx_path):
     except subprocess.CalledProcessError as e:
         return f"[ERROR] Failed to process {onnx_path}:\n{e.stderr}\n"
 
+
 def main():
-    dataset_dir = os.path.join(os.path.dirname(__file__), "dataset")
-    map_dataset_dir = os.path.join(os.path.dirname(__file__), "map_dataset")
+    project_root = get_project_root()
+    dataset_dir = project_root / "dataset"
+    map_dataset_dir = project_root / "map_dataset"
     
     # Create map_dataset directory if it doesn't exist
-    os.makedirs(map_dataset_dir, exist_ok=True)
+    map_dataset_dir.mkdir(exist_ok=True)
     
     # Get all model directories
-    model_dirs = [d for d in os.listdir(dataset_dir) 
-                  if os.path.isdir(os.path.join(dataset_dir, d))]
+    if not dataset_dir.exists():
+        print(f"Error: Dataset directory not found at {dataset_dir}")
+        return
+        
+    model_dirs = [d.name for d in dataset_dir.iterdir() if d.is_dir()]
     
     print(f"Found {len(model_dirs)} model directories")
     
     for model_name in sorted(model_dirs):
-        model_dir = os.path.join(dataset_dir, model_name)
-        original_path, modified_path = find_onnx_files(model_dir)
+        model_dir = dataset_dir / model_name
+        original_path, modified_path = find_onnx_files(str(model_dir))
         
         if not original_path:
             print(f"[WARN] No original ONNX file found for {model_name}")
@@ -89,7 +102,7 @@ def main():
         modified_map = run_print_onnx_graph(modified_path)
         
         # Combine and save
-        output_file = os.path.join(map_dataset_dir, f"{model_name}.txt")
+        output_file = map_dataset_dir / f"{model_name}.txt"
         with open(output_file, 'w') as f:
             f.write(f"# Model: {model_name}\n")
             f.write(f"# Original ONNX: {os.path.basename(original_path)}\n")
@@ -107,6 +120,6 @@ def main():
     
     print("\nDone! All maps generated in map_dataset/")
 
+
 if __name__ == "__main__":
     main()
-

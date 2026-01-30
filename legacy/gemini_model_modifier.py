@@ -21,7 +21,7 @@ class GeminiModelModifier:
         self.model_name = None
         
         # Try to initialize Gemini model
-        for model_name in ['gemini-3-pro-preview', 'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash-exp']:
+        for model_name in ['gemini-3-pro-preview']:
             try:
                 test_model = genai.GenerativeModel(model_name)
                 test_model.generate_content("test", generation_config={"max_output_tokens": 1})

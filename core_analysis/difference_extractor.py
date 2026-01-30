@@ -4,6 +4,7 @@ Extract differences between original and modified ONNX model maps.
 Identifies key architectural changes that enabled compilation.
 """
 
+import ast
 import re
 from typing import Dict, List, Tuple, Set, Optional
 from dataclasses import dataclass, field
@@ -71,10 +72,10 @@ def parse_node_line(line: str) -> Optional[NodeInfo]:
     
     node_id, op_type, inputs_str, input_shapes_str, output_shapes_str = match.groups()
     
-    # Parse lists
-    input_node_ids = eval(inputs_str) if inputs_str else []
-    input_shapes = eval(input_shapes_str) if input_shapes_str else []
-    output_shapes = eval(output_shapes_str) if output_shapes_str else []
+    # Parse lists safely using ast.literal_eval
+    input_node_ids = ast.literal_eval(inputs_str) if inputs_str else []
+    input_shapes = ast.literal_eval(input_shapes_str) if input_shapes_str else []
+    output_shapes = ast.literal_eval(output_shapes_str) if output_shapes_str else []
     
     return NodeInfo(
         node_id=node_id,

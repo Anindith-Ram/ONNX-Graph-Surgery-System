@@ -5,9 +5,13 @@ Compare pipeline-modified model vs ground truth modified model.
 
 import onnx
 import numpy as np
+import sys
 from typing import Dict, List, Tuple, Any, Optional
-from difference_extractor import extract_differences, ModelDiff
+from pathlib import Path
 from collections import defaultdict, Counter
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core_analysis.difference_extractor import extract_differences, ModelDiff
 
 # Optional dependency for numerical output comparison
 try:

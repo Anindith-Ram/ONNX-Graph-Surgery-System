@@ -8,6 +8,7 @@ based on semantic similarity to the query.
 
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -19,7 +20,8 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-from knowledge_base import KnowledgeBase, KnowledgeChunk
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from knowledge_base.knowledge_base import KnowledgeBase, KnowledgeChunk
 
 
 @dataclass
@@ -112,8 +114,15 @@ class RAGRetriever:
         
         # Load knowledge base
         if self.kb_path.exists():
-            self.kb = KnowledgeBase.load(str(self.kb_path))
-            print(f"Loaded knowledge base: {len(self.kb.chunks)} chunks")
+            try:
+                self.kb = KnowledgeBase.load(str(self.kb_path))
+                print(f"Loaded knowledge base: {len(self.kb.chunks)} chunks")
+            except ValueError as e:
+                print(f"Warning: {e}")
+                self.kb = KnowledgeBase(chunks=[])
+            except Exception as e:
+                print(f"Warning: Could not load knowledge base: {e}")
+                self.kb = KnowledgeBase(chunks=[])
         else:
             print(f"Warning: Knowledge base not found at {kb_path}")
             self.kb = KnowledgeBase(chunks=[])
@@ -331,6 +340,125 @@ class RAGRetriever:
             elif chunk.metadata.get('model_name', '').lower().startswith(model_category.lower()):
                 hints.append(chunk)
         return hints[:3]  # Top 3 hints
+    
+    # =========================================================================
+    # Enhanced Pattern-Based Retrieval
+    # =========================================================================
+    
+    def find_similar_transformations(
+        self,
+        op_type: str,
+        context: Optional[Dict] = None,
+        model_category: Optional[str] = None,
+        top_k: int = 5,
+    ) -> List[Dict]:
+        """
+        Find transformations from the knowledge base similar to the given node.
+        
+        Args:
+            op_type: Operation type to find transformations for
+            context: Optional context dict with keys:
+                     - position: 'near_input', 'middle', 'near_output'
+                     - input_ops: List of input producer op types
+                     - output_ops: List of output consumer op types
+            model_category: Optional model category filter
+            top_k: Number of results to return
+            
+        Returns:
+            List of transformation dictionaries with confidence scores
+        """
+        results = []
+        
+        # Search knowledge base chunks
+        for chunk in self.kb.chunks:
+            score = 0.0
+            
+            # Op type match (exact)
+            chunk_ops = chunk.metadata.get('op_types', [])
+            chunk_ops.extend(chunk.metadata.get('related_ops', []))
+            
+            if op_type in chunk_ops:
+                score += 0.5
+            elif op_type.lower() in chunk.content.lower():
+                score += 0.3
+            
+            # Model category match
+            if model_category:
+                if chunk.metadata.get('model_category') == model_category:
+                    score += 0.2
+                elif model_category.lower() in chunk.content.lower():
+                    score += 0.1
+            
+            # Context match (if provided)
+            if context and score > 0:
+                # Position match
+                chunk_position = chunk.metadata.get('context', {}).get('position')
+                if chunk_position and context.get('position') == chunk_position:
+                    score += 0.1
+                
+                # Surrounding ops match
+                chunk_surrounding = chunk.metadata.get('context', {}).get('surrounding_ops', [])
+                if context.get('input_ops'):
+                    overlap = len(set(chunk_surrounding) & set(context['input_ops']))
+                    if overlap > 0:
+                        score += 0.1 * min(1.0, overlap / len(context['input_ops']))
+            
+            # Pattern type bonus
+            if chunk.metadata.get('pattern_type') in ['removal', 'replacement', 'addition']:
+                score += 0.1
+            
+            if score > 0:
+                results.append({
+                    'chunk': chunk,
+                    'score': score,
+                    'op_type': op_type,
+                    'pattern_type': chunk.metadata.get('pattern_type', 'unknown'),
+                    'confidence': min(1.0, score),  # Normalize to [0, 1]
+                })
+        
+        # Sort by score and return top_k
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:top_k]
+    
+    def get_transformation_confidence(
+        self,
+        op_type: str,
+        action: str,
+        model_category: Optional[str] = None,
+    ) -> float:
+        """
+        Get confidence score for a transformation based on KB patterns.
+        
+        Args:
+            op_type: Operation type
+            action: Action type ('remove', 'add', 'replace')
+            model_category: Optional model category
+            
+        Returns:
+            Confidence score (0.0 to 1.0)
+        """
+        # Find matching patterns
+        matches = self.find_similar_transformations(
+            op_type=op_type,
+            model_category=model_category,
+            top_k=10,
+        )
+        
+        if not matches:
+            return 0.3  # Default low confidence for unknown patterns
+        
+        # Filter by action type
+        action_matches = [
+            m for m in matches 
+            if m['pattern_type'] == action or action in m.get('chunk', KnowledgeChunk('','','')).content.lower()
+        ]
+        
+        if action_matches:
+            # Average confidence of matching patterns
+            return sum(m['confidence'] for m in action_matches) / len(action_matches)
+        
+        # Fallback to overall matches
+        return sum(m['confidence'] for m in matches) / len(matches) * 0.7  # Reduced for type mismatch
 
 
 def detect_model_category(model_path: str) -> str:

@@ -26,23 +26,23 @@ def pretty_print_cache_file(cache_file: Path):
         # Timestamp (human-readable)
         timestamp = data.get('timestamp', 'Unknown')
         if isinstance(timestamp, str):
-            print(f"📅 Timestamp: {timestamp}")
+            print(f"Timestamp: {timestamp}")
         else:
             # Convert Unix timestamp to readable
             import time
-            print(f"📅 Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}")
+            print(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))}")
         
         if 'timestamp_unix' in data:
             print(f"   (Unix: {data['timestamp_unix']})")
         
-        print(f"\n🤖 Model: {data.get('model_name', 'Unknown')}")
-        print(f"🔑 Hash: {data.get('prompt_hash', 'Unknown')}")
-        print(f"📊 Hits: {data.get('hits', 0)}")
-        print(f"\n📝 Prompt Preview:\n   {data.get('prompt_preview', 'N/A')[:200]}")
+        print(f"\nModel: {data.get('model_name', 'Unknown')}")
+        print(f"Hash: {data.get('prompt_hash', 'Unknown')}")
+        print(f"Hits: {data.get('hits', 0)}")
+        print(f"\nPrompt Preview:\n   {data.get('prompt_preview', 'N/A')[:200]}")
         
         # Response (parse and pretty-print if it's JSON)
         response = data.get('response', '')
-        print(f"\n💬 Response:")
+        print(f"\nResponse:")
         print("-" * 80)
         
         # Try to parse response as JSON and pretty-print it
@@ -96,4 +96,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

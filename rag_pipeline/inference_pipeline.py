@@ -149,13 +149,14 @@ class InferencePipeline:
         
         # Try to generate it
         try:
-            from print_onnx_graph import print_onnx_graph
             import subprocess
+            from pathlib import Path
             
-            # Generate map
-            script_path = os.path.join(os.path.dirname(__file__), "print_onnx_graph.py")
+            # Generate map using script in scripts/
+            project_root = Path(__file__).parent.parent
+            script_path = project_root / "scripts" / "print_onnx_graph.py"
             result = subprocess.run(
-                ["python3", script_path, model_path],
+                ["python3", str(script_path), model_path],
                 capture_output=True,
                 text=True
             )

@@ -16,11 +16,13 @@ Reports include:
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from suggestion_generator import SuggestionReport, Suggestion, Priority
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from suggestion_pipeline.suggestion_generator import SuggestionReport, Suggestion, Priority
 
 
 class ReportGenerator:
@@ -624,7 +626,7 @@ def generate_report(
     Returns:
         Generated report string
     """
-    from suggestion_generator import SuggestionGenerator
+    from suggestion_pipeline.suggestion_generator import SuggestionGenerator
     
     generator = SuggestionGenerator()
     report = generator.analyze_and_suggest(model_path)

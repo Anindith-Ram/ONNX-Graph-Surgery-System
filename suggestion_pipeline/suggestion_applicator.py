@@ -5,15 +5,31 @@ Suggestion Applicator - Applies suggestions to ONNX models.
 This module implements the actual graph surgery operations to apply
 suggestions to ONNX models, creating a "suggested-modified" model
 that can be compared with ground truth.
+
+Enhanced with rich diagnostics for ReAct agent observation loops.
 """
 
 import onnx
 from onnx import helper, numpy_helper
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict, Counter
+from pathlib import Path
 import numpy as np
 import copy
 import os
+import sys
+import time
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from agents.diagnostics import (
+    ErrorCategory,
+    GraphSnapshot,
+    TransformationDelta,
+    TransformationResult,
+    FeedbackCollector,
+)
 
 
 class SuggestionApplicator:
@@ -22,15 +38,49 @@ class SuggestionApplicator:
     
     This is a simplified implementation that handles common transformations.
     For complex suggestions, it may create placeholder nodes or approximations.
+    
+    Enhanced with FeedbackCollector for rich diagnostics supporting ReAct
+    agent observation loops.
     """
     
-    def __init__(self):
-        self.applied_count = 0  # Kept for backward compatibility
-        self.failed_count = 0
-        # New tracking fields
-        self.transformed_count = 0  # Actually changed the model
-        self.attempted_count = 0  # Tried to apply
-        self.skipped_count = 0  # No handler available
+    def __init__(self, model_name: str = ""):
+        """
+        Initialize suggestion applicator.
+        
+        Args:
+            model_name: Optional name for tracking in feedback collector
+        """
+        # Initialize feedback collector for rich diagnostics
+        self.feedback_collector = FeedbackCollector(model_name=model_name)
+        
+        # Current model reference (for apply_single method)
+        self._current_model: Optional[onnx.ModelProto] = None
+    
+    # Backward compatibility properties
+    @property
+    def applied_count(self) -> int:
+        """Backward compatible: count of successfully applied suggestions."""
+        return self.feedback_collector.applied_count
+    
+    @property
+    def failed_count(self) -> int:
+        """Backward compatible: count of failed suggestions."""
+        return self.feedback_collector.failed_count
+    
+    @property
+    def transformed_count(self) -> int:
+        """Backward compatible: count of suggestions that changed the model."""
+        return self.feedback_collector.transformed_count
+    
+    @property
+    def attempted_count(self) -> int:
+        """Backward compatible: count of attempted suggestions."""
+        return self.feedback_collector.attempted_count
+    
+    @property
+    def skipped_count(self) -> int:
+        """Backward compatible: count of skipped suggestions."""
+        return self.feedback_collector.skipped_count
     
     def apply_suggestions(
         self,
@@ -58,11 +108,11 @@ class SuggestionApplicator:
             )
         
         model = onnx.load(model_path)
-        self.applied_count = 0  # Kept for backward compatibility
-        self.failed_count = 0
-        self.transformed_count = 0
-        self.attempted_count = 0
-        self.skipped_count = 0
+        
+        # Reset feedback collector for new session
+        model_name = Path(model_path).stem
+        self.feedback_collector = FeedbackCollector(model_name=model_name)
+        self._current_model = model
         
         # Sort suggestions by priority (critical first)
         priority_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
@@ -93,48 +143,34 @@ class SuggestionApplicator:
             if validated_suggestion:
                 validated_suggestions.append(validated_suggestion)
             else:
-                # Suggestion couldn't be validated/fixed, skip it
-                self.skipped_count += 1
+                # Suggestion couldn't be validated/fixed, record as failed
+                result = TransformationResult(
+                    suggestion_id=suggestion.get('id', -1),
+                    node_name=suggestion.get('location', {}).get('node_name', 'unknown'),
+                    op_type=suggestion.get('location', {}).get('op_type', 'unknown'),
+                    action_type='unknown',
+                    success=False,
+                    was_transformed=False,
+                    error_category=ErrorCategory.INVALID_LOCATION,
+                    error_message="Could not validate node location",
+                )
+                self.feedback_collector.add(result)
                 print(f"  Warning: Skipping suggestion {suggestion.get('id')} - could not validate node location")
         
         # Apply each validated suggestion
         for suggestion in validated_suggestions:
             if suggestion.get('priority') in ['critical', 'high', 'medium']:
-                try:
-                    # Store operation counts before transformation
-                    op_counts_before = Counter([n.op_type for n in model.graph.node])
-                    node_names_before = set([n.name for n in model.graph.node])
-                    
-                    # Apply suggestion
-                    model, was_transformed = self._apply_single_suggestion(
-                        model, suggestion, node_map, node_list
-                    )
-                    
-                    # Update node map after transformation
-                    node_map = {node.name: node for node in model.graph.node}
-                    node_list = list(model.graph.node)
-                    
-                    # Check if transformation actually occurred
-                    op_counts_after = Counter([n.op_type for n in model.graph.node])
-                    node_names_after = set([n.name for n in model.graph.node])
-                    
-                    # Count as transformed if operation counts changed or node names changed
-                    actually_transformed = (
-                        op_counts_before != op_counts_after or
-                        node_names_before != node_names_after
-                    )
-                    
-                    self.attempted_count += 1
-                    if actually_transformed:
-                        self.transformed_count += 1
-                        self.applied_count += 1  # For backward compatibility
-                    else:
-                        self.skipped_count += 1
-                        
-                except Exception as e:
-                    print(f"  Warning: Failed to apply suggestion {suggestion.get('id')}: {e}")
-                    self.failed_count += 1
-                    self.attempted_count += 1
+                # Use apply_single for rich diagnostics
+                result = self.apply_single(model, suggestion)
+                
+                # Update model if transformation succeeded
+                if result.was_transformed and result.after_snapshot:
+                    # Model was modified in place by handlers
+                    pass
+                
+                # Update node map after transformation
+                node_map = {node.name: node for node in model.graph.node}
+                node_list = list(model.graph.node)
         
         # Post-processing: Remove operations that GT consistently removes
         # This addresses the mismatch where GT removes operations we don't suggest
@@ -146,11 +182,215 @@ class SuggestionApplicator:
         
         # Clean up and validate
         model = self._cleanup_model(model)
+        self._current_model = model
         
         if output_path:
             onnx.save(model, output_path)
         
         return model
+    
+    # Error categories that are worth retrying
+    RETRYABLE_ERRORS = {
+        ErrorCategory.TIMEOUT,
+        ErrorCategory.VALIDATION_FAILED,
+        ErrorCategory.HANDLER_FAILED,
+    }
+    
+    def apply_single(
+        self,
+        model: onnx.ModelProto,
+        suggestion: Dict,
+        max_retries: int = 2,
+        retry_delay: float = 0.1,
+    ) -> TransformationResult:
+        """
+        Apply a single suggestion with rich diagnostics and retry support.
+        
+        This method is designed for ReAct agent integration, providing
+        detailed TransformationResult for observation loops.
+        
+        Args:
+            model: ONNX model to modify (modified in place)
+            suggestion: Suggestion dictionary
+            max_retries: Maximum number of retry attempts for retryable errors (default: 2)
+            retry_delay: Delay in seconds between retries (default: 0.1)
+            
+        Returns:
+            TransformationResult with detailed diagnostics including retry count
+        """
+        # Extract suggestion details
+        suggestion_id = suggestion.get('id', -1)
+        location = suggestion.get('location', {})
+        node_name = location.get('node_name', 'unknown')
+        op_type = location.get('op_type', 'unknown')
+        
+        # Determine action type from suggestion
+        action_type = self._determine_action_type(suggestion)
+        handler_name = f"_handle_{op_type.lower()}"
+        
+        result = None
+        retry_count = 0
+        
+        for attempt in range(max_retries + 1):
+            result = self._try_apply_single(
+                model=model,
+                suggestion=suggestion,
+                suggestion_id=suggestion_id,
+                node_name=node_name,
+                op_type=op_type,
+                action_type=action_type,
+                handler_name=handler_name,
+                retry_count=attempt,
+            )
+            
+            # Success - no need to retry
+            if result.success:
+                break
+            
+            # Check if error is retryable
+            if result.error_category not in self.RETRYABLE_ERRORS:
+                break
+            
+            # Don't retry on last attempt
+            if attempt >= max_retries:
+                break
+            
+            # Wait before retry
+            if retry_delay > 0:
+                time.sleep(retry_delay)
+            
+            retry_count = attempt + 1
+            if self.feedback_collector.model_name:
+                print(f"  Retrying suggestion {suggestion_id} (attempt {retry_count + 1}/{max_retries + 1})...")
+        
+        # Add to feedback collector (only the final result)
+        self.feedback_collector.add(result)
+        
+        return result
+    
+    def _try_apply_single(
+        self,
+        model: onnx.ModelProto,
+        suggestion: Dict,
+        suggestion_id: int,
+        node_name: str,
+        op_type: str,
+        action_type: str,
+        handler_name: str,
+        retry_count: int,
+    ) -> TransformationResult:
+        """
+        Single attempt to apply a suggestion.
+        
+        This is the inner implementation called by apply_single() for each retry attempt.
+        """
+        start_time = time.time()
+        
+        # Capture before snapshot
+        before_snapshot = GraphSnapshot.capture(model)
+        
+        # Build node map
+        node_map = {node.name: node for node in model.graph.node}
+        node_list = list(model.graph.node)
+        
+        try:
+            # Apply the transformation
+            modified_model, was_transformed = self._apply_single_suggestion(
+                model, suggestion, node_map, node_list
+            )
+            
+            # Capture after snapshot if transformed
+            after_snapshot = GraphSnapshot.capture(modified_model) if was_transformed else None
+            
+            # Compute delta
+            delta = TransformationDelta.compute(before_snapshot, after_snapshot)
+            
+            # Validate transformation
+            validation_passed = None
+            if was_transformed:
+                try:
+                    onnx.checker.check_model(modified_model)
+                    validation_passed = True
+                except Exception:
+                    validation_passed = False
+            
+            duration_ms = (time.time() - start_time) * 1000
+            
+            return TransformationResult(
+                suggestion_id=suggestion_id,
+                node_name=node_name,
+                op_type=op_type,
+                action_type=action_type,
+                success=True,
+                was_transformed=was_transformed and delta.has_changes,
+                before_snapshot=before_snapshot,
+                after_snapshot=after_snapshot,
+                transformation_delta=delta,
+                duration_ms=duration_ms,
+                retry_count=retry_count,
+                handler_name=handler_name,
+                validation_passed=validation_passed,
+            )
+            
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            error_category = ErrorCategory.from_exception(e)
+            
+            if retry_count == 0:
+                print(f"  Warning: Failed to apply suggestion {suggestion_id}: {e}")
+            
+            return TransformationResult(
+                suggestion_id=suggestion_id,
+                node_name=node_name,
+                op_type=op_type,
+                action_type=action_type,
+                success=False,
+                was_transformed=False,
+                error_category=error_category,
+                error_message=str(e),
+                before_snapshot=before_snapshot,
+                duration_ms=duration_ms,
+                retry_count=retry_count,
+                handler_name=handler_name,
+            )
+    
+    def _determine_action_type(self, suggestion: Dict) -> str:
+        """Determine the action type from a suggestion."""
+        suggestion_text = suggestion.get('suggestion', '').lower()
+        category = suggestion.get('category', '').lower()
+        
+        if any(word in suggestion_text for word in ['remove', 'delete', 'eliminate', 'drop']):
+            return 'remove'
+        elif any(word in suggestion_text for word in ['add', 'insert', 'create', 'introduce']):
+            return 'add'
+        elif any(word in suggestion_text for word in ['replace', 'substitute', 'swap']):
+            return 'replace'
+        elif any(word in suggestion_text for word in ['reshape', '4d', 'dimension']):
+            return 'reshape'
+        elif 'rewire' in suggestion_text or 'connect' in suggestion_text:
+            return 'rewire'
+        elif category in ['pattern_based_removal', 'optimization', 'training_artifact']:
+            return 'remove'
+        elif category in ['pattern_based_addition', 'activation']:
+            return 'add'
+        else:
+            return 'transform'
+    
+    def get_feedback(self) -> FeedbackCollector:
+        """Get the feedback collector with all transformation results."""
+        return self.feedback_collector
+    
+    def get_observation_string(self) -> str:
+        """Get formatted observation string for ReAct agent."""
+        return self.feedback_collector.to_observation_string()
+    
+    def get_summary(self) -> Dict:
+        """
+        Get summary of suggestion application.
+        
+        Returns dictionary compatible with existing interfaces.
+        """
+        return self.feedback_collector.get_summary()
     
     def _apply_gt_removal_patterns(self, model: onnx.ModelProto) -> onnx.ModelProto:
         """

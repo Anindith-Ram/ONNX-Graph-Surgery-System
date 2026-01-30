@@ -34,8 +34,8 @@ class NodeDiff:
 
 
 @dataclass
-class ModelDiff:
-    """Differences between original and modified model."""
+class ONNXModelDiff:
+    """Differences between original and modified ONNX model (direct comparison)."""
     model_name: str
     original_node_count: int
     modified_node_count: int
@@ -80,7 +80,7 @@ class Pattern:
 class AnalysisReport:
     """Complete analysis report."""
     total_models: int
-    model_diffs: List[ModelDiff]
+    model_diffs: List[ONNXModelDiff]
     patterns: List[Pattern]
     op_type_statistics: Dict[str, Dict]
     recommendations: List[str]
@@ -106,7 +106,7 @@ class DatasetAnalyzer:
     """
     
     def __init__(self):
-        self.diffs: List[ModelDiff] = []
+        self.diffs: List[ONNXModelDiff] = []
     
     def _detect_model_category(self, model_name: str) -> str:
         """Detect model category from model name."""
@@ -126,7 +126,7 @@ class DatasetAnalyzer:
     def _extract_context(
         self,
         node: NodeDiff,
-        diff: ModelDiff,
+        diff: ONNXModelDiff,
         original_model: Optional[onnx.ModelProto] = None
     ) -> Dict:
         """Extract context about when operation is removed/added."""
@@ -247,12 +247,12 @@ class DatasetAnalyzer:
         original_path: str,
         modified_path: str,
         model_name: str
-    ) -> ModelDiff:
+    ) -> ONNXModelDiff:
         """Compute differences between two ONNX models."""
         original = onnx.load(original_path)
         modified = onnx.load(modified_path)
         
-        diff = ModelDiff(
+        diff = ONNXModelDiff(
             model_name=model_name,
             original_node_count=len(original.graph.node),
             modified_node_count=len(modified.graph.node)
@@ -364,7 +364,7 @@ class DatasetAnalyzer:
         
         return changes
     
-    def _find_patterns(self, diffs: List[ModelDiff]) -> List[Pattern]:
+    def _find_patterns(self, diffs: List[ONNXModelDiff]) -> List[Pattern]:
         """Find common patterns across all model diffs."""
         patterns = []
         
@@ -524,7 +524,7 @@ class DatasetAnalyzer:
         
         return patterns
     
-    def _compute_op_statistics(self, diffs: List[ModelDiff]) -> Dict[str, Dict]:
+    def _compute_op_statistics(self, diffs: List[ONNXModelDiff]) -> Dict[str, Dict]:
         """Compute statistics for each operation type."""
         stats = defaultdict(lambda: {
             'added_count': 0,
@@ -691,6 +691,241 @@ class DatasetAnalyzer:
         with open(output_path, 'w') as f:
             json.dump(analysis.to_dict(), f, indent=2)
         print(f"Report saved to: {output_path}")
+    
+    # =========================================================================
+    # Enhanced Pattern Extraction for PatternDatabase
+    # =========================================================================
+    
+    def extract_learned_patterns(
+        self,
+        analysis: AnalysisReport,
+    ) -> List[Dict]:
+        """
+        Extract node-level patterns from analysis for PatternDatabase.
+        
+        Args:
+            analysis: Analysis report from analyze_dataset()
+            
+        Returns:
+            List of pattern dictionaries for PatternDatabase
+        """
+        patterns = []
+        pattern_counter = 0
+        
+        for diff in analysis.model_diffs:
+            model_category = self._detect_model_category(diff.model_name)
+            original_model = None
+            
+            # Load original model for context extraction
+            if diff.original_model_path:
+                try:
+                    original_model = onnx.load(diff.original_model_path)
+                except Exception:
+                    pass
+            
+            # Extract removal patterns
+            for node in diff.removed_nodes:
+                context = self._extract_node_context(node, original_model)
+                pattern = {
+                    'id': f'pattern_{pattern_counter}',
+                    'action': 'remove',
+                    'op_type': node.op_type,
+                    'context': context,
+                    'model_category': model_category,
+                    'frequency': 1,
+                    'confidence': 1.0,
+                    'example_models': [diff.model_name],
+                    'replacement_ops': [],
+                }
+                patterns.append(pattern)
+                pattern_counter += 1
+            
+            # Extract addition patterns
+            for node in diff.added_nodes:
+                context = self._extract_node_context_added(node, diff)
+                pattern = {
+                    'id': f'pattern_{pattern_counter}',
+                    'action': 'add',
+                    'op_type': node.op_type,
+                    'context': context,
+                    'model_category': model_category,
+                    'frequency': 1,
+                    'confidence': 1.0,
+                    'example_models': [diff.model_name],
+                    'replacement_ops': [],
+                }
+                patterns.append(pattern)
+                pattern_counter += 1
+            
+            # Extract replacement patterns (from modified nodes)
+            for node in diff.modified_nodes:
+                if 'original_op' in node.details and 'new_op' in node.details:
+                    context = self._extract_node_context(node, original_model)
+                    pattern = {
+                        'id': f'pattern_{pattern_counter}',
+                        'action': 'replace',
+                        'op_type': node.details['original_op'],
+                        'context': context,
+                        'model_category': model_category,
+                        'frequency': 1,
+                        'confidence': 1.0,
+                        'example_models': [diff.model_name],
+                        'replacement_ops': [node.details['new_op']],
+                    }
+                    patterns.append(pattern)
+                    pattern_counter += 1
+        
+        return patterns
+    
+    def _extract_node_context(
+        self,
+        node: NodeDiff,
+        original_model: Optional[onnx.ModelProto],
+    ) -> Dict:
+        """Extract detailed context for a node."""
+        context = {
+            'position': 'middle',
+            'input_ops': [],
+            'output_ops': [],
+            'input_shapes': [],
+            'output_shapes': [],
+        }
+        
+        if original_model is None:
+            return context
+        
+        try:
+            # Find the node in the original model
+            target_node = None
+            node_idx = None
+            for i, n in enumerate(original_model.graph.node):
+                if n.name == node.node_name or n.op_type == node.op_type:
+                    # Check if outputs match
+                    target_node = n
+                    node_idx = i
+                    break
+            
+            if target_node is None:
+                return context
+            
+            total_nodes = len(original_model.graph.node)
+            
+            # Determine position
+            if node_idx is not None:
+                position_ratio = node_idx / total_nodes if total_nodes > 0 else 0.5
+                if position_ratio > 0.8:
+                    context['position'] = 'near_output'
+                elif position_ratio < 0.2:
+                    context['position'] = 'near_input'
+                else:
+                    context['position'] = 'middle'
+            
+            # Build tensor producer map
+            tensor_producers = {}
+            for n in original_model.graph.node:
+                for out in n.output:
+                    tensor_producers[out] = n
+            
+            # Build tensor consumer map
+            tensor_consumers = defaultdict(list)
+            for n in original_model.graph.node:
+                for inp in n.input:
+                    tensor_consumers[inp].append(n)
+            
+            # Get input producers
+            for inp in target_node.input:
+                if inp in tensor_producers:
+                    context['input_ops'].append(tensor_producers[inp].op_type)
+            
+            # Get output consumers
+            for out in target_node.output:
+                for consumer in tensor_consumers.get(out, []):
+                    context['output_ops'].append(consumer.op_type)
+            
+        except Exception:
+            pass
+        
+        return context
+    
+    def _extract_node_context_added(
+        self,
+        node: NodeDiff,
+        diff: ONNXModelDiff,
+    ) -> Dict:
+        """Extract context for an added node."""
+        # For added nodes, context is less certain
+        # We use the node's details if available
+        context = {
+            'position': 'middle',
+            'input_ops': [],
+            'output_ops': [],
+            'input_shapes': [],
+            'output_shapes': [],
+        }
+        
+        # Check if details contain context information
+        if 'details' in dir(node) and node.details:
+            if 'position' in node.details:
+                context['position'] = node.details['position']
+        
+        return context
+    
+    def build_pattern_database(
+        self,
+        analysis: AnalysisReport,
+        output_path: Optional[str] = None,
+    ):
+        """
+        Build a PatternDatabase from analysis results.
+        
+        Args:
+            analysis: Analysis report from analyze_dataset()
+            output_path: Optional path to save the database
+            
+        Returns:
+            PatternDatabase instance
+        """
+        # Import here to avoid circular imports
+        try:
+            from knowledge_base.knowledge_base import PatternDatabase, LearnedPattern, NodeContext
+        except ImportError:
+            print("Warning: PatternDatabase not available. Using dict-based patterns.")
+            return self.extract_learned_patterns(analysis)
+        
+        # Extract patterns as dicts
+        pattern_dicts = self.extract_learned_patterns(analysis)
+        
+        # Build database
+        db = PatternDatabase()
+        
+        for p_dict in pattern_dicts:
+            pattern = LearnedPattern(
+                id=p_dict['id'],
+                action=p_dict['action'],
+                op_type=p_dict['op_type'],
+                context=NodeContext(
+                    position=p_dict['context'].get('position', 'middle'),
+                    input_ops=p_dict['context'].get('input_ops', []),
+                    output_ops=p_dict['context'].get('output_ops', []),
+                ),
+                model_category=p_dict['model_category'],
+                frequency=p_dict['frequency'],
+                confidence=p_dict['confidence'],
+                example_models=p_dict['example_models'],
+                replacement_ops=p_dict['replacement_ops'],
+            )
+            db.add_pattern(pattern)
+        
+        # Compute statistics
+        db.compute_pattern_frequencies()
+        db.compute_success_rates()
+        
+        # Save if path provided
+        if output_path:
+            db.save(output_path)
+            print(f"Pattern database saved to: {output_path}")
+        
+        return db
 
 
 def main():

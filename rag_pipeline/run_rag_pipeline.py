@@ -56,7 +56,7 @@ def setup_pipeline(api_key: str, rebuild_kb: bool = False, use_enhanced: bool = 
         if not features_file.exists() or rebuild_kb:
             if use_enhanced:
                 print("Extracting enhanced features with Gemini...")
-                from enhanced_feature_extractor import extract_all_features_enhanced
+                from legacy.enhanced_feature_extractor import extract_all_features_enhanced
                 features = extract_all_features_enhanced(
                     str(map_dataset_dir),
                     train_models,
@@ -65,7 +65,7 @@ def setup_pipeline(api_key: str, rebuild_kb: bool = False, use_enhanced: bool = 
                 )
             else:
                 print("Extracting features from model maps...")
-                from feature_extractor import extract_all_features
+                from core_analysis.feature_extractor import extract_all_features
                 all_features = extract_all_features(str(map_dataset_dir), None)
                 # Filter to training models
                 features = [f for f in all_features if f['model_name'] in train_models]
@@ -279,7 +279,7 @@ Examples:
         # Evaluate
         if args.evaluate:
             print("\n=== Evaluating RAG Pipeline ===")
-            from evaluator import RuleEvaluator
+            from evaluation.evaluator import RuleEvaluator
             evaluator = RuleEvaluator()
             results = evaluator.evaluate_all(
                 test_models,

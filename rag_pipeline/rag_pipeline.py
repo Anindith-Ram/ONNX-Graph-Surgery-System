@@ -112,7 +112,7 @@ class RAGPipeline:
     
     def _initialize_gemini_model(self):
         """Initialize Gemini model with fallback logic."""
-        model_names = ['gemini-3-pro-preview', 'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash-exp']
+        model_names = ['gemini-3-pro-preview']
         
         for i, model_name in enumerate(model_names):
             try:
@@ -233,8 +233,7 @@ class RAGPipeline:
             print("No Gemini model available, using fallback rules")
             rules_text = self._fallback_rules(features)
         else:
-            model_names = ['gemini-3-pro', 'gemini-3.0-pro', 'gemini-3-pro-preview',
-                          'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash-exp']
+            model_names = ['gemini-3-pro-preview']
             current_index = model_names.index(self.model_name) if self.model_name in model_names else -1
             
             try:
@@ -407,7 +406,7 @@ def main():
     if args.build_kb:
         # Extract features and build knowledge base
         print("Extracting features...")
-        from feature_extractor import extract_all_features
+        from core_analysis.feature_extractor import extract_all_features
         map_dataset_dir = base_dir / "map_dataset"
         features = extract_all_features(str(map_dataset_dir), str(features_file))
         
@@ -431,7 +430,7 @@ def main():
         
         # Generate rules for a model
         if args.model_map:
-            from difference_extractor import extract_differences
+            from core_analysis.difference_extractor import extract_differences
             diff = extract_differences(args.model_map)
             result = pipeline.generate_rules(diff)
             

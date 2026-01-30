@@ -4,9 +4,13 @@ Extract high-level features from model differences for RAG indexing.
 Converts technical differences into semantic features that can be matched.
 """
 
-from typing import Dict, List, Any
-from difference_extractor import ModelDiff, NodeInfo
+import sys
 import json
+from pathlib import Path
+from typing import Dict, List, Any
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core_analysis.difference_extractor import ModelDiff, NodeInfo
 
 
 class FeatureExtractor:
@@ -272,7 +276,7 @@ class FeatureExtractor:
 
 def extract_all_features(map_dataset_dir: str, output_file: str = None) -> List[Dict[str, Any]]:
     """Extract features for all models."""
-    from difference_extractor import extract_all_differences
+    from core_analysis.difference_extractor import extract_all_differences
     
     diffs = extract_all_differences(map_dataset_dir)
     extractor = FeatureExtractor()
