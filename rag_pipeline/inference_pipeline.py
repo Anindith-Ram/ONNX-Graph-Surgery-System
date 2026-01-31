@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """
 Complete inference pipeline: Generate rules → Apply rules → Compare with ground truth.
+
+Updated to use new suggestion pipeline components instead of legacy rule-based approach.
 """
 
 import os
 import sys
 import json
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 import onnx
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from rag_pipeline.rag_pipeline import RAGPipeline
 from core_analysis.difference_extractor import extract_differences
-from legacy.rule_parser import RuleParser
-from legacy.rule_applicator import RuleApplicator
+from suggestion_pipeline.suggestion_applicator import SuggestionApplicator
+from suggestion_pipeline.rag_suggestion_generator import RAGSuggestionGenerator
 from evaluation.model_comparator import ModelComparator
 
 
@@ -31,9 +33,18 @@ class InferencePipeline:
             gemini_api_key: API key for Gemini-based model modification
         """
         self.rag_pipeline = rag_pipeline
-        self.rule_parser = RuleParser()
-        self.rule_applicator = RuleApplicator(gemini_api_key)
+        self.api_key = gemini_api_key
+        self.suggestion_applicator = SuggestionApplicator()
+        self.suggestion_generator = RAGSuggestionGenerator(
+            api_key=gemini_api_key,
+            use_rag=True
+        ) if gemini_api_key else None
         self.comparator = ModelComparator()
+        
+        # Track application stats
+        self._applied_count = 0
+        self._failed_count = 0
+        self._skipped_count = 0
     
     def process_model(
         self,
@@ -77,23 +88,50 @@ class InferencePipeline:
         
         model_diff = extract_differences(map_file)
         
-        # Step 3: Generate rules using RAG
-        print("\n--- Step 1: Generating Rules ---")
-        rag_result = self.rag_pipeline.generate_rules(model_diff)
-        results['generated_rules'] = rag_result['generated_rules']
-        results['rules_count'] = len(rag_result['generated_rules'])
-        print(f"Generated {results['rules_count']} rules")
+        # Step 3: Generate suggestions using RAG
+        print("\n--- Step 1: Generating Suggestions ---")
+        if self.suggestion_generator:
+            suggestion_report = self.suggestion_generator.analyze_and_suggest(original_model_path)
+            suggestions = suggestion_report.suggestions
+        else:
+            # Fallback to RAG pipeline
+            rag_result = self.rag_pipeline.generate_rules(model_diff)
+            suggestions = self._convert_rules_to_suggestions(rag_result.get('generated_rules', []))
         
-        # Step 4: Apply rules using Gemini (RAG application)
-        print("\n--- Step 2: Applying Rules with Gemini (RAG Graph Surgery) ---")
-        pipeline_modified_model = self.rule_applicator.apply_rules(
-            original_model,
-            rag_result['generated_rules'],  # Pass rules directly to Gemini
-            retrieved_examples=rag_result.get('retrieved_context', '')
-        )
-        results['rule_application_summary'] = self.rule_applicator.get_summary()
+        results['suggestions_count'] = len(suggestions)
+        results['critical_count'] = sum(1 for s in suggestions if s.priority == 'critical')
+        print(f"Generated {len(suggestions)} suggestions (Critical: {results['critical_count']})")
+        
+        # Step 4: Apply suggestions using SuggestionApplicator
+        print("\n--- Step 2: Applying Suggestions ---")
+        pipeline_modified_model = original_model
+        self._applied_count = 0
+        self._failed_count = 0
+        self._skipped_count = 0
+        
+        for suggestion in suggestions:
+            try:
+                modified, success = self.suggestion_applicator.apply_suggestion(
+                    pipeline_modified_model, 
+                    suggestion.to_dict() if hasattr(suggestion, 'to_dict') else suggestion
+                )
+                if success:
+                    pipeline_modified_model = modified
+                    self._applied_count += 1
+                else:
+                    self._failed_count += 1
+            except Exception as e:
+                print(f"  Warning: Failed to apply suggestion: {e}")
+                self._failed_count += 1
+        
+        results['rule_application_summary'] = {
+            'applied': self._applied_count,
+            'failed': self._failed_count,
+            'skipped': self._skipped_count,
+            'total': len(suggestions)
+        }
         results['pipeline_node_count'] = len(pipeline_modified_model.graph.node)
-        print(f"Applied {results['rule_application_summary']['applied']} rules")
+        print(f"Applied {self._applied_count}/{len(suggestions)} suggestions")
         
         # Step 5: Compare with ground truth (if available)
         if ground_truth_model_path and os.path.exists(ground_truth_model_path):
@@ -137,6 +175,25 @@ class InferencePipeline:
             results['results_path'] = results_path
         
         return results
+    
+    def _convert_rules_to_suggestions(self, rules: List[str]) -> List[Any]:
+        """Convert old-style rules to suggestion objects for compatibility."""
+        from suggestion_pipeline.suggestion_generator import Suggestion
+        
+        suggestions = []
+        for i, rule in enumerate(rules):
+            # Create a basic suggestion from rule text
+            suggestion = Suggestion(
+                suggestion_id=f"rule_{i}",
+                target_node="",  # Unknown from rule text
+                action="apply_rule",
+                description=rule,
+                priority="medium",
+                graphsurgeon_code="",
+                confidence=0.5
+            )
+            suggestions.append(suggestion)
+        return suggestions
     
     def _get_or_create_map_file(self, model_path: str) -> Optional[str]:
         """Get or create map file for a model."""

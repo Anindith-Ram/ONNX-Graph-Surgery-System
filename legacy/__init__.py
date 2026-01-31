@@ -1,13 +1,26 @@
-"""Legacy modules for backward compatibility."""
+"""
+DEPRECATED: Legacy modules have been removed.
 
-from .rule_parser import RuleParser
-from .rule_applicator import RuleApplicator
-from .gemini_model_modifier import GeminiModelModifier
-from .enhanced_feature_extractor import EnhancedFeatureExtractor
+This package is deprecated. All functionality has been migrated to:
 
-__all__ = [
-    'RuleParser',
-    'RuleApplicator',
-    'GeminiModelModifier',
-    'EnhancedFeatureExtractor',
-]
+- knowledge_base/surgery_database.py - Unified data structures
+- core_analysis/transformation_extractor.py - Precise transformation extraction
+- knowledge_base/llm_context_generator.py - Rich LLM context
+- suggestion_pipeline/rag_suggestion_generator.py - RAG-enhanced suggestions
+- suggestion_pipeline/suggestion_applicator.py - Suggestion application
+
+Migration guide:
+- RuleParser -> SurgeryTemplate from surgery_database
+- RuleApplicator -> SuggestionApplicator
+- GeminiModelModifier -> RAGSuggestionGenerator + LLMContextGenerator
+- EnhancedFeatureExtractor -> TransformationExtractor
+"""
+
+import warnings
+warnings.warn(
+    "The 'legacy' package is deprecated and empty. All modules have been migrated.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+__all__ = []

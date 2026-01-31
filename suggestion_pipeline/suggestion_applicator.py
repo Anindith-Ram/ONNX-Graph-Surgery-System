@@ -2084,4 +2084,684 @@ class SuggestionApplicator:
             return matching_nodes[-1]
         
         return None
-
+    
+    # ==========================================================================
+    # PHASE 3 ENHANCEMENTS: Strategic Transformation Methods
+    # ==========================================================================
+    
+    def rewrite_gemm_as_conv(
+        self,
+        model: onnx.ModelProto,
+        gemm_node_name: str,
+        R: int = 1,
+        S: int = 1,
+        C: Optional[int] = None,
+        K: Optional[int] = None
+    ) -> Tuple[onnx.ModelProto, str]:
+        """
+        Rewrite a Gemm operation as Conv for MLA efficiency.
+        
+        Gemm: Y = alpha * A @ B + beta * C
+        Conv: Y = X * W + b (where W is [K, C, R, S])
+        
+        For Gemm with shapes [B, N, C] @ [C, K] -> [B, N, K]:
+        1. Reshape input: [B, N, C] -> [B, C, N, 1]
+        2. Transform weights: [C, K] -> [K, C, 1, 1]
+        3. Apply Conv with kernel [1, 1]
+        4. Reshape output: [B, K, N, 1] -> [B, N, K]
+        
+        Args:
+            model: ONNX model
+            gemm_node_name: Name of Gemm node to replace
+            R, S: Kernel spatial dimensions (default 1x1)
+            C: Input channels (inferred from weights if None)
+            K: Output channels (inferred from weights if None)
+            
+        Returns:
+            Tuple of (modified model, new conv node name)
+        """
+        node_map = {node.name: node for node in model.graph.node}
+        if gemm_node_name not in node_map:
+            return model, ""
+        
+        gemm_node = node_map[gemm_node_name]
+        if gemm_node.op_type != 'Gemm':
+            return model, ""
+        
+        nodes = list(model.graph.node)
+        node_idx = next((i for i, n in enumerate(nodes) if n.name == gemm_node_name), None)
+        if node_idx is None:
+            return model, ""
+        
+        # Get Gemm inputs
+        A_input = gemm_node.input[0] if len(gemm_node.input) > 0 else None
+        B_input = gemm_node.input[1] if len(gemm_node.input) > 1 else None
+        C_input = gemm_node.input[2] if len(gemm_node.input) > 2 else None
+        gemm_output = gemm_node.output[0] if gemm_node.output else None
+        
+        if not A_input or not B_input or not gemm_output:
+            return model, ""
+        
+        # Get Gemm attributes
+        transA = 0
+        transB = 0
+        for attr in gemm_node.attribute:
+            if attr.name == 'transA':
+                transA = attr.i
+            elif attr.name == 'transB':
+                transB = attr.i
+        
+        # Try to get weight tensor info from initializer
+        weight_tensor = None
+        for init in model.graph.initializer:
+            if init.name == B_input:
+                weight_tensor = numpy_helper.to_array(init)
+                break
+        
+        if weight_tensor is not None:
+            # Infer dimensions from weights
+            if transB:
+                weight_shape = weight_tensor.T.shape
+            else:
+                weight_shape = weight_tensor.shape
+            
+            if C is None:
+                C = weight_shape[0] if len(weight_shape) > 0 else 1
+            if K is None:
+                K = weight_shape[1] if len(weight_shape) > 1 else 1
+        else:
+            # Use provided or default dimensions
+            C = C or 1
+            K = K or 1
+        
+        # Create unique names
+        base_name = gemm_node_name
+        reshape_in_name = f"{base_name}_reshape_in"
+        reshape_in_shape_name = f"{base_name}_reshape_in_shape"
+        conv_name = f"{base_name}_conv"
+        conv_weights_name = f"{base_name}_conv_weights"
+        reshape_out_name = f"{base_name}_reshape_out"
+        reshape_out_shape_name = f"{base_name}_reshape_out_shape"
+        
+        # Create shape tensors for reshapes
+        # Input: [B, N, C] -> [B, C, N, 1]
+        reshape_in_shape = np.array([0, -1, 0, 1], dtype=np.int64)  # 0 = copy from input
+        shape_in_tensor = numpy_helper.from_array(reshape_in_shape, name=reshape_in_shape_name)
+        model.graph.initializer.append(shape_in_tensor)
+        
+        # Output: [B, K, N, 1] -> [B, N, K]
+        reshape_out_shape = np.array([0, -1, K], dtype=np.int64)
+        shape_out_tensor = numpy_helper.from_array(reshape_out_shape, name=reshape_out_shape_name)
+        model.graph.initializer.append(shape_out_tensor)
+        
+        # Transform weights: [C, K] -> [K, C, 1, 1]
+        if weight_tensor is not None:
+            if transB:
+                weight_tensor = weight_tensor.T
+            conv_weights = weight_tensor.T.reshape(K, C, R, S).astype(np.float32)
+            conv_weight_tensor = numpy_helper.from_array(conv_weights, name=conv_weights_name)
+            model.graph.initializer.append(conv_weight_tensor)
+        else:
+            # Create placeholder weights
+            conv_weights = np.zeros((K, C, R, S), dtype=np.float32)
+            conv_weight_tensor = numpy_helper.from_array(conv_weights, name=conv_weights_name)
+            model.graph.initializer.append(conv_weight_tensor)
+        
+        # Create nodes
+        new_nodes = []
+        
+        # 1. Reshape input
+        reshaped_input = f"{base_name}_reshaped_in"
+        reshape_in_node = helper.make_node(
+            'Reshape',
+            inputs=[A_input, reshape_in_shape_name],
+            outputs=[reshaped_input],
+            name=reshape_in_name
+        )
+        new_nodes.append(reshape_in_node)
+        
+        # 2. Conv
+        conv_output = f"{base_name}_conv_out"
+        conv_inputs = [reshaped_input, conv_weights_name]
+        if C_input:
+            conv_inputs.append(C_input)
+        
+        conv_node = helper.make_node(
+            'Conv',
+            inputs=conv_inputs,
+            outputs=[conv_output],
+            name=conv_name,
+            kernel_shape=[R, S],
+            pads=[0, 0, 0, 0],
+            strides=[1, 1]
+        )
+        new_nodes.append(conv_node)
+        
+        # 3. Reshape output
+        reshape_out_node = helper.make_node(
+            'Reshape',
+            inputs=[conv_output, reshape_out_shape_name],
+            outputs=[gemm_output],
+            name=reshape_out_name
+        )
+        new_nodes.append(reshape_out_node)
+        
+        # Replace Gemm with new nodes
+        nodes = nodes[:node_idx] + new_nodes + nodes[node_idx + 1:]
+        
+        del model.graph.node[:]
+        model.graph.node.extend(nodes)
+        
+        return model, conv_name
+    
+    def rewrite_gemm_as_sliced_conv(
+        self,
+        model: onnx.ModelProto,
+        gemm_node_name: str,
+        K_slices: List[int],
+        output_names: List[str]
+    ) -> Tuple[onnx.ModelProto, List[str]]:
+        """
+        Rewrite Gemm as multiple sliced Conv operations for separate outputs.
+        
+        This is useful for models like DETR that need separate detection outputs
+        (boxes, classes) from a single dense layer.
+        
+        Args:
+            model: ONNX model
+            gemm_node_name: Name of Gemm node to replace
+            K_slices: List of output channel counts for each slice
+            output_names: Names for each sliced output
+            
+        Returns:
+            Tuple of (modified model, list of new conv node names)
+        """
+        node_map = {node.name: node for node in model.graph.node}
+        if gemm_node_name not in node_map:
+            return model, []
+        
+        gemm_node = node_map[gemm_node_name]
+        if gemm_node.op_type != 'Gemm':
+            return model, []
+        
+        nodes = list(model.graph.node)
+        node_idx = next((i for i, n in enumerate(nodes) if n.name == gemm_node_name), None)
+        if node_idx is None:
+            return model, []
+        
+        # Get Gemm inputs
+        A_input = gemm_node.input[0] if len(gemm_node.input) > 0 else None
+        B_input = gemm_node.input[1] if len(gemm_node.input) > 1 else None
+        
+        if not A_input or not B_input:
+            return model, []
+        
+        # Get weight tensor
+        weight_tensor = None
+        for init in model.graph.initializer:
+            if init.name == B_input:
+                weight_tensor = numpy_helper.to_array(init)
+                break
+        
+        if weight_tensor is None:
+            return model, []
+        
+        # Get transB attribute
+        transB = 0
+        for attr in gemm_node.attribute:
+            if attr.name == 'transB':
+                transB = attr.i
+        
+        if transB:
+            weight_tensor = weight_tensor.T
+        
+        C = weight_tensor.shape[0]
+        total_K = weight_tensor.shape[1]
+        
+        if sum(K_slices) != total_K:
+            return model, []
+        
+        new_nodes = []
+        conv_names = []
+        
+        # Create reshape for input
+        base_name = gemm_node_name
+        reshape_in_name = f"{base_name}_reshape_in"
+        reshape_in_shape_name = f"{base_name}_reshape_in_shape"
+        reshaped_input = f"{base_name}_reshaped_in"
+        
+        reshape_in_shape = np.array([0, -1, 0, 1], dtype=np.int64)
+        shape_in_tensor = numpy_helper.from_array(reshape_in_shape, name=reshape_in_shape_name)
+        model.graph.initializer.append(shape_in_tensor)
+        
+        reshape_in_node = helper.make_node(
+            'Reshape',
+            inputs=[A_input, reshape_in_shape_name],
+            outputs=[reshaped_input],
+            name=reshape_in_name
+        )
+        new_nodes.append(reshape_in_node)
+        
+        # Create sliced convolutions
+        K_start = 0
+        for i, (K_slice, out_name) in enumerate(zip(K_slices, output_names)):
+            # Slice weights
+            sliced_weights = weight_tensor[:, K_start:K_start + K_slice].T.reshape(K_slice, C, 1, 1)
+            conv_weights_name = f"{base_name}_conv{i}_weights"
+            conv_weight_tensor = numpy_helper.from_array(sliced_weights.astype(np.float32), name=conv_weights_name)
+            model.graph.initializer.append(conv_weight_tensor)
+            
+            # Create Conv
+            conv_name = f"{base_name}_conv{i}"
+            conv_output = f"{base_name}_conv{i}_out"
+            
+            conv_node = helper.make_node(
+                'Conv',
+                inputs=[reshaped_input, conv_weights_name],
+                outputs=[conv_output],
+                name=conv_name,
+                kernel_shape=[1, 1]
+            )
+            new_nodes.append(conv_node)
+            conv_names.append(conv_name)
+            
+            # Create output reshape
+            reshape_out_shape_name = f"{base_name}_reshape{i}_shape"
+            reshape_out_shape = np.array([0, -1, K_slice], dtype=np.int64)
+            shape_tensor = numpy_helper.from_array(reshape_out_shape, name=reshape_out_shape_name)
+            model.graph.initializer.append(shape_tensor)
+            
+            reshape_out_node = helper.make_node(
+                'Reshape',
+                inputs=[conv_output, reshape_out_shape_name],
+                outputs=[out_name],
+                name=f"{base_name}_reshape{i}"
+            )
+            new_nodes.append(reshape_out_node)
+            
+            K_start += K_slice
+        
+        # Replace Gemm with new nodes
+        nodes = nodes[:node_idx] + new_nodes + nodes[node_idx + 1:]
+        
+        del model.graph.node[:]
+        model.graph.node.extend(nodes)
+        
+        return model, conv_names
+    
+    def split_model(
+        self,
+        model: onnx.ModelProto,
+        split_tensor_names: List[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Split a model at specified tensor boundaries.
+        
+        Creates multiple sub-models that can be transformed independently
+        and later merged back together.
+        
+        Args:
+            model: ONNX model to split
+            split_tensor_names: Tensor names where to split
+            
+        Returns:
+            List of model split dictionaries with:
+            - 'model': onnx.ModelProto sub-model
+            - 'inputs': List of input tensor names
+            - 'outputs': List of output tensor names
+            - 'split_idx': Index of this split
+        """
+        splits = []
+        nodes = list(model.graph.node)
+        
+        # Build tensor producer/consumer maps
+        tensor_to_producer_idx = {}
+        for i, node in enumerate(nodes):
+            for output in node.output:
+                tensor_to_producer_idx[output] = i
+        
+        # Determine split points
+        split_indices = [0]
+        for tensor_name in split_tensor_names:
+            if tensor_name in tensor_to_producer_idx:
+                split_idx = tensor_to_producer_idx[tensor_name] + 1
+                if split_idx not in split_indices:
+                    split_indices.append(split_idx)
+        split_indices.append(len(nodes))
+        split_indices.sort()
+        
+        # Create sub-models for each split
+        original_inputs = {inp.name for inp in model.graph.input}
+        original_outputs = {out.name for out in model.graph.output}
+        original_initializers = {init.name: init for init in model.graph.initializer}
+        
+        for split_num in range(len(split_indices) - 1):
+            start_idx = split_indices[split_num]
+            end_idx = split_indices[split_num + 1]
+            
+            split_nodes = nodes[start_idx:end_idx]
+            
+            if not split_nodes:
+                continue
+            
+            # Collect tensors consumed and produced by this split
+            consumed_tensors = set()
+            produced_tensors = set()
+            
+            for node in split_nodes:
+                consumed_tensors.update(node.input)
+                produced_tensors.update(node.output)
+            
+            # Inputs: tensors consumed but not produced by this split
+            # (either from original inputs, initializers, or previous splits)
+            split_inputs = consumed_tensors - produced_tensors
+            
+            # Outputs: tensors that are original outputs or consumed by later splits
+            split_outputs = set()
+            for node in nodes[end_idx:]:
+                for inp in node.input:
+                    if inp in produced_tensors:
+                        split_outputs.add(inp)
+            split_outputs.update(produced_tensors & original_outputs)
+            
+            # Create sub-model
+            # Input specifications
+            input_specs = []
+            for inp_name in split_inputs:
+                if inp_name in original_initializers:
+                    continue  # Skip initializers, they'll be included separately
+                # Try to find type info
+                for orig_inp in model.graph.input:
+                    if orig_inp.name == inp_name:
+                        input_specs.append(orig_inp)
+                        break
+                else:
+                    # Create placeholder input
+                    input_specs.append(helper.make_tensor_value_info(
+                        inp_name, onnx.TensorProto.FLOAT, None
+                    ))
+            
+            # Output specifications
+            output_specs = []
+            for out_name in split_outputs:
+                for orig_out in model.graph.output:
+                    if orig_out.name == out_name:
+                        output_specs.append(orig_out)
+                        break
+                else:
+                    # Create placeholder output
+                    output_specs.append(helper.make_tensor_value_info(
+                        out_name, onnx.TensorProto.FLOAT, None
+                    ))
+            
+            # Collect required initializers
+            required_initializers = []
+            for init_name in consumed_tensors:
+                if init_name in original_initializers:
+                    required_initializers.append(original_initializers[init_name])
+            
+            # Create sub-graph
+            sub_graph = helper.make_graph(
+                split_nodes,
+                f"{model.graph.name}_split{split_num}",
+                input_specs,
+                output_specs,
+                required_initializers
+            )
+            
+            # Create sub-model
+            sub_model = helper.make_model(
+                sub_graph,
+                opset_imports=model.opset_import
+            )
+            
+            splits.append({
+                'model': sub_model,
+                'inputs': list(split_inputs - set(original_initializers.keys())),
+                'outputs': list(split_outputs),
+                'split_idx': split_num
+            })
+        
+        return splits
+    
+    def merge_models(
+        self,
+        splits: List[Dict[str, Any]],
+        original_model: onnx.ModelProto
+    ) -> onnx.ModelProto:
+        """
+        Merge model splits back into a single model.
+        
+        Args:
+            splits: List of split dictionaries from split_model()
+            original_model: Original model (for metadata and type info)
+            
+        Returns:
+            Merged ONNX model
+        """
+        if not splits:
+            return original_model
+        
+        # Collect all nodes from splits
+        all_nodes = []
+        all_initializers = {}
+        
+        # Sort splits by index
+        sorted_splits = sorted(splits, key=lambda s: s['split_idx'])
+        
+        for split in sorted_splits:
+            sub_model = split['model']
+            all_nodes.extend(sub_model.graph.node)
+            
+            for init in sub_model.graph.initializer:
+                all_initializers[init.name] = init
+        
+        # Use original model's inputs and outputs
+        merged_graph = helper.make_graph(
+            all_nodes,
+            original_model.graph.name,
+            list(original_model.graph.input),
+            list(original_model.graph.output),
+            list(all_initializers.values())
+        )
+        
+        # Create merged model
+        merged_model = helper.make_model(
+            merged_graph,
+            opset_imports=original_model.opset_import
+        )
+        
+        return merged_model
+    
+    def transform_weights(
+        self,
+        model: onnx.ModelProto,
+        weight_name: str,
+        transform_func: callable
+    ) -> bool:
+        """
+        Transform weights using a custom function.
+        
+        Args:
+            model: ONNX model
+            weight_name: Name of weight initializer to transform
+            transform_func: Function that takes numpy array and returns transformed array
+            
+        Returns:
+            True if transformation succeeded, False otherwise
+        """
+        # Find the initializer
+        init_idx = None
+        for i, init in enumerate(model.graph.initializer):
+            if init.name == weight_name:
+                init_idx = i
+                break
+        
+        if init_idx is None:
+            return False
+        
+        try:
+            # Get current weights
+            current_weights = numpy_helper.to_array(model.graph.initializer[init_idx])
+            
+            # Apply transformation
+            transformed_weights = transform_func(current_weights)
+            
+            # Create new initializer
+            new_init = numpy_helper.from_array(transformed_weights, name=weight_name)
+            
+            # Replace old initializer
+            del model.graph.initializer[init_idx]
+            model.graph.initializer.insert(init_idx, new_init)
+            
+            return True
+        except Exception as e:
+            print(f"Weight transformation failed: {e}")
+            return False
+    
+    def apply_einsum_decomposition(
+        self,
+        model: onnx.ModelProto,
+        einsum_node_name: str
+    ) -> Tuple[onnx.ModelProto, bool]:
+        """
+        Decompose Einsum into MatMul + Transpose operations.
+        
+        Handles common attention patterns:
+        - "bhid,bhjd->bhij": Q @ K^T (transpose K, then matmul)
+        - "bhij,bhjd->bhid": Attention @ V (matmul directly)
+        
+        Args:
+            model: ONNX model
+            einsum_node_name: Name of Einsum node to decompose
+            
+        Returns:
+            Tuple of (modified model, success flag)
+        """
+        node_map = {node.name: node for node in model.graph.node}
+        if einsum_node_name not in node_map:
+            return model, False
+        
+        einsum_node = node_map[einsum_node_name]
+        if einsum_node.op_type != 'Einsum':
+            return model, False
+        
+        # Get equation
+        equation = None
+        for attr in einsum_node.attribute:
+            if attr.name == 'equation':
+                equation = attr.s.decode('utf-8') if isinstance(attr.s, bytes) else attr.s
+                break
+        
+        if not equation or len(einsum_node.input) != 2:
+            return model, False
+        
+        nodes = list(model.graph.node)
+        node_idx = next((i for i, n in enumerate(nodes) if n.name == einsum_node_name), None)
+        if node_idx is None:
+            return model, False
+        
+        input_A = einsum_node.input[0]
+        input_B = einsum_node.input[1]
+        output = einsum_node.output[0]
+        
+        new_nodes = []
+        
+        # Pattern: Q @ K^T (bhid,bhjd->bhij)
+        if 'bhid,bhjd->bhij' in equation or 'bnqd,bnkd->bnqk' in equation:
+            # Transpose second input: [B, H, J, D] -> [B, H, D, J]
+            transpose_output = f"{einsum_node_name}_k_transposed"
+            transpose_node = helper.make_node(
+                'Transpose',
+                inputs=[input_B],
+                outputs=[transpose_output],
+                name=f"{einsum_node_name}_transpose_k",
+                perm=[0, 1, 3, 2]
+            )
+            new_nodes.append(transpose_node)
+            
+            # MatMul: Q @ K^T
+            matmul_node = helper.make_node(
+                'MatMul',
+                inputs=[input_A, transpose_output],
+                outputs=[output],
+                name=f"{einsum_node_name}_matmul"
+            )
+            new_nodes.append(matmul_node)
+            
+        # Pattern: Attention @ V (bhij,bhjd->bhid)
+        elif 'bhij,bhjd->bhid' in equation or 'bnqk,bnkd->bnqd' in equation:
+            # Direct MatMul: Attention @ V
+            matmul_node = helper.make_node(
+                'MatMul',
+                inputs=[input_A, input_B],
+                outputs=[output],
+                name=f"{einsum_node_name}_matmul"
+            )
+            new_nodes.append(matmul_node)
+            
+        else:
+            # Unknown pattern - fall back to generic MatMul
+            matmul_node = helper.make_node(
+                'MatMul',
+                inputs=[input_A, input_B],
+                outputs=[output],
+                name=f"{einsum_node_name}_matmul"
+            )
+            new_nodes.append(matmul_node)
+        
+        # Replace Einsum with new nodes
+        nodes = nodes[:node_idx] + new_nodes + nodes[node_idx + 1:]
+        
+        del model.graph.node[:]
+        model.graph.node.extend(nodes)
+        
+        return model, True
+    
+    def create_snapshot(self, model: onnx.ModelProto) -> Dict[str, Any]:
+        """
+        Create a snapshot of model state for rollback.
+        
+        Args:
+            model: ONNX model
+            
+        Returns:
+            Snapshot dictionary
+        """
+        return {
+            'nodes': [copy.deepcopy(node) for node in model.graph.node],
+            'initializers': [copy.deepcopy(init) for init in model.graph.initializer],
+            'inputs': [copy.deepcopy(inp) for inp in model.graph.input],
+            'outputs': [copy.deepcopy(out) for out in model.graph.output],
+            'node_count': len(model.graph.node),
+            'op_counts': Counter([n.op_type for n in model.graph.node])
+        }
+    
+    def restore_snapshot(
+        self,
+        model: onnx.ModelProto,
+        snapshot: Dict[str, Any]
+    ) -> onnx.ModelProto:
+        """
+        Restore model from a snapshot.
+        
+        Args:
+            model: Model to restore
+            snapshot: Snapshot dictionary from create_snapshot()
+            
+        Returns:
+            Restored model
+        """
+        # Clear current state
+        del model.graph.node[:]
+        del model.graph.initializer[:]
+        del model.graph.input[:]
+        del model.graph.output[:]
+        
+        # Restore from snapshot
+        model.graph.node.extend(snapshot['nodes'])
+        model.graph.initializer.extend(snapshot['initializers'])
+        model.graph.input.extend(snapshot['inputs'])
+        model.graph.output.extend(snapshot['outputs'])
+        
+        return model

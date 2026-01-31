@@ -8,6 +8,7 @@ The GraphSurgeryPipeline provides:
 - Adaptive strategy changes
 - Pattern database integration
 - Comprehensive evaluation and reporting
+- NEW: Full strategic mode with architecture analysis, region-based execution, and comprehensive evaluation
 """
 
 import json
@@ -44,6 +45,27 @@ try:
     PATTERN_DB_AVAILABLE = True
 except ImportError:
     PATTERN_DB_AVAILABLE = False
+
+# Try to import strategic components (new architecture-level planning)
+try:
+    from core_analysis.architecture_analyzer import ArchitectureAnalyzer, ArchitectureType
+    from core_analysis.compilation_simulator import CompilationSimulator
+    from agents.strategic_planner import StrategicPlanner, TransformationPlan, PlanningMode
+    from agents.execution_orchestrator import ExecutionOrchestrator, ExecutionStatus
+    from knowledge_base.strategy_database import StrategyDatabase
+    from knowledge_base.transformation_regions import (
+        TransformationPlan as ExecPlan,
+        TransformationRegion as ExecRegion,
+        SubgraphSignature
+    )
+    from evaluation.numerical_verifier import NumericalVerifier
+    from evaluation.compilation_verifier import CompilationVerifier
+    from evaluation.strategic_evaluator import StrategicEvaluator
+    from evaluation.evaluation_dashboard import DashboardGenerator
+    STRATEGIC_COMPONENTS_AVAILABLE = True
+except ImportError as e:
+    STRATEGIC_COMPONENTS_AVAILABLE = False
+    _STRATEGIC_IMPORT_ERROR = str(e)
 
 
 class PipelineResult(BaseModel):
@@ -178,6 +200,56 @@ class GraphSurgeryPipeline:
         self._current_analysis: Optional[Any] = None
         self._current_model_category: str = "Other"
         self._previous_strategies: List[TransformationStrategy] = []
+        
+        # Initialize strategic components (if available and enabled)
+        self._strategic_components_initialized = False
+        if self.config.strategic_mode and STRATEGIC_COMPONENTS_AVAILABLE:
+            self._init_strategic_components()
+    
+    def _init_strategic_components(self) -> None:
+        """Initialize strategic components for architecture-level planning."""
+        try:
+            # Load or create strategy database
+            strategy_db_path = Path(self.config.strategy_db_path)
+            if strategy_db_path.exists():
+                self.strategy_db = StrategyDatabase.load(str(strategy_db_path))
+            else:
+                self.strategy_db = StrategyDatabase.create_with_defaults()
+            
+            # Architecture analyzer
+            self.arch_analyzer = ArchitectureAnalyzer()
+            
+            # Compilation simulator
+            self.compilation_sim = CompilationSimulator(verbose=self.config.verbose)
+            
+            # Strategic planner (architecture-level)
+            self.strategic_planner_v2 = StrategicPlanner(
+                strategy_db=self.strategy_db,
+                verbose=self.config.verbose
+            )
+            
+            # Execution orchestrator
+            self.execution_orchestrator = ExecutionOrchestrator(
+                strategy_db=self.strategy_db,
+                verbose=self.config.verbose
+            )
+            
+            # Evaluation components
+            self.numerical_verifier = NumericalVerifier(verbose=self.config.verbose)
+            self.compilation_verifier = CompilationVerifier(verbose=self.config.verbose)
+            self.strategic_evaluator = StrategicEvaluator(
+                strategy_db=self.strategy_db,
+                verbose=self.config.verbose
+            )
+            self.dashboard_generator = DashboardGenerator(verbose=self.config.verbose)
+            
+            self._strategic_components_initialized = True
+            if self.config.verbose:
+                print(f"  Strategic components initialized")
+                print(f"  Strategy database: {len(self.strategy_db.strategies)} strategies")
+        except Exception as e:
+            print(f"  Warning: Could not initialize strategic components: {e}")
+            self._strategic_components_initialized = False
     
     def process(
         self,
@@ -187,12 +259,195 @@ class GraphSurgeryPipeline:
         """
         Process model through full pipeline.
         
+        Uses strategic mode (architecture-level) if enabled and components available,
+        otherwise falls back to node-level suggestion processing.
+        
         Args:
             model_path: Path to ONNX model
             ground_truth_path: Optional path to ground truth model
             
         Returns:
             PipelineResult with all outcomes
+        """
+        # Use strategic mode if enabled and available
+        if self.config.strategic_mode and self._strategic_components_initialized:
+            return self._process_strategic(model_path, ground_truth_path)
+        
+        return self._process_standard(model_path, ground_truth_path)
+    
+    def _process_strategic(
+        self,
+        model_path: str,
+        ground_truth_path: Optional[str] = None,
+    ) -> PipelineResult:
+        """
+        Process model using strategic architecture-level planning.
+        
+        This is the enhanced pipeline that:
+        1. Analyzes architecture (detects Transformer, YOLO, etc.)
+        2. Simulates compilation to identify blockers
+        3. Creates strategic transformation plan with regions
+        4. Executes plan with checkpoints and rollback
+        5. Performs comprehensive evaluation (numerical, compilation, strategic)
+        """
+        import onnx
+        
+        start_time = time.time()
+        model_name = Path(model_path).stem
+        phase_times: Dict[str, float] = {}
+        
+        print(f"\n{'='*80}")
+        print(f"Strategic Surgery Pipeline: {model_name}")
+        print(f"{'='*80}")
+        
+        output_dir = Path(self.config.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(output_dir / f"{model_name}_modified.onnx")
+        
+        try:
+            # Phase 1: Strategic Diagnosis
+            print("\n[Phase 1] Strategic Diagnosis...")
+            phase_start = time.time()
+            
+            # Architecture analysis
+            architecture = self.arch_analyzer.analyze(model_path)
+            print(f"  Architecture: {architecture.architecture_type.value}")
+            print(f"  Blocks detected: {len(architecture.blocks)}")
+            
+            # Compilation simulation
+            compilation = self.compilation_sim.simulate(model_path)
+            initial_blockers = compilation.blocker_count
+            print(f"  Blockers: {compilation.blocker_count}")
+            print(f"  Will compile: {compilation.will_compile}")
+            
+            phase_times["diagnosis"] = time.time() - phase_start
+            
+            # Phase 2: Strategic Planning
+            print("\n[Phase 2] Strategic Planning...")
+            phase_start = time.time()
+            
+            plan = self.strategic_planner_v2.create_plan(model_path)
+            print(f"  Mode: {plan.mode.value}")
+            print(f"  Strategy: {plan.strategy_name}")
+            print(f"  Regions: {len(plan.regions)}")
+            
+            phase_times["planning"] = time.time() - phase_start
+            
+            # Phase 3: Orchestrated Execution
+            print("\n[Phase 3] Orchestrated Execution...")
+            phase_start = time.time()
+            
+            # Convert plan to execution format
+            exec_plan = ExecPlan(
+                plan_id=plan.plan_id,
+                model_name=plan.model_name,
+                model_path=model_path,
+                architecture_type=plan.architecture_type,
+                primary_strategy=plan.strategy_id,
+                execution_order=plan.execution_order,
+                total_blockers_before=initial_blockers
+            )
+            
+            # Convert regions
+            for region in plan.regions:
+                sig = SubgraphSignature.compute_from_ops(region.op_types)
+                exec_region = ExecRegion(
+                    region_id=region.region_id,
+                    region_type=region.region_type,
+                    signature=sig,
+                    node_indices=region.node_indices,
+                    op_types=region.op_types,
+                    original_purpose=region.original_purpose,
+                    architectural_issue=region.architectural_issue,
+                    recommended_strategy=region.transformation_strategy,
+                    has_blockers=region.has_blockers
+                )
+                exec_plan.regions.append(exec_region)
+            
+            # Execute
+            modified_model, exec_report = self.execution_orchestrator.execute(
+                model_path, exec_plan, output_path
+            )
+            
+            print(f"  Status: {exec_report.status.value}")
+            print(f"  Regions succeeded: {exec_report.regions_succeeded}/{exec_report.regions_executed}")
+            
+            phase_times["execution"] = time.time() - phase_start
+            
+            # Phase 4: Comprehensive Evaluation
+            print("\n[Phase 4] Comprehensive Evaluation...")
+            phase_start = time.time()
+            
+            dashboard = self.dashboard_generator.generate(
+                model_path, output_path,
+                ground_truth_path=ground_truth_path,
+                execution_report=exec_report.to_dict()
+            )
+            
+            print(f"  Compilation success: {dashboard.summary.compilation_success}")
+            print(f"  Numerical match: {dashboard.summary.numerical_match}")
+            print(f"  Blockers resolved: {dashboard.summary.blockers_resolved}")
+            print(f"  Overall score: {dashboard.summary.overall_score:.1f}%")
+            
+            # Save dashboard
+            dashboard_dir = output_dir / "dashboards"
+            dashboard.save(str(dashboard_dir), formats=['json', 'md'])
+            
+            phase_times["evaluation"] = time.time() - phase_start
+            
+            total_time = time.time() - start_time
+            
+            # Build result
+            success = (
+                exec_report.status == ExecutionStatus.COMPLETED and
+                (dashboard.summary.compilation_success or dashboard.summary.blockers_resolved > 0)
+            )
+            
+            result = PipelineResult(
+                success=success,
+                model_path=model_path,
+                model_name=model_name,
+                analysis={
+                    "architecture": architecture.architecture_type.value,
+                    "blocks": len(architecture.blocks),
+                    "initial_blockers": initial_blockers,
+                    "final_blockers": dashboard.summary.blockers_remaining,
+                },
+                suggestions_count=len(plan.regions),
+                strategy=plan.to_dict(),
+                execution_result=exec_report.to_dict(),
+                evaluation=dashboard.to_dict(),
+                total_time_seconds=total_time,
+                phase_times=phase_times,
+                modified_model_path=output_path if modified_model else None,
+                report_path=str(output_dir / f"{model_name}_report.json"),
+            )
+            
+            result.save(result.report_path)
+            
+            print(f"\n{'='*80}")
+            print(f"Strategic Pipeline Complete: {'SUCCESS' if success else 'PARTIAL'}")
+            print(f"Blockers: {initial_blockers} -> {dashboard.summary.blockers_remaining}")
+            print(f"Total time: {total_time:.1f}s")
+            print(f"{'='*80}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"\nERROR in strategic pipeline: {e}")
+            # Fall back to standard processing
+            print("Falling back to standard pipeline...")
+            return self._process_standard(model_path, ground_truth_path)
+    
+    def _process_standard(
+        self,
+        model_path: str,
+        ground_truth_path: Optional[str] = None,
+    ) -> PipelineResult:
+        """
+        Process model using standard node-level suggestion processing.
+        
+        This is the original pipeline workflow.
         """
         start_time = time.time()
         model_name = Path(model_path).stem

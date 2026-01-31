@@ -797,6 +797,344 @@ class ONNXAnalyzer:
         return warnings
 
 
+    # =========================================================================
+    # Enhanced Methods for Surgery Database
+    # =========================================================================
+    
+    def get_dependency_chain(
+        self, 
+        analysis: ModelAnalysis, 
+        node_id: int, 
+        direction: str = 'both',
+        max_depth: int = 10
+    ) -> Dict[str, List[int]]:
+        """
+        Get full dependency chain for a node (multi-hop).
+        
+        Args:
+            analysis: Model analysis
+            node_id: Starting node ID
+            direction: 'predecessors', 'successors', or 'both'
+            max_depth: Maximum chain depth to traverse
+            
+        Returns:
+            Dict with 'predecessors' and/or 'successors' lists of node IDs
+        """
+        result = {}
+        
+        if direction in ('predecessors', 'both'):
+            predecessors = []
+            current_level = {node_id}
+            visited = {node_id}
+            
+            for depth in range(max_depth):
+                next_level = set()
+                for nid in current_level:
+                    if 0 <= nid < len(analysis.nodes):
+                        node = analysis.nodes[nid]
+                        for dep_id in node.dependencies:
+                            if dep_id not in visited:
+                                predecessors.append(dep_id)
+                                next_level.add(dep_id)
+                                visited.add(dep_id)
+                
+                if not next_level:
+                    break
+                current_level = next_level
+            
+            result['predecessors'] = predecessors
+        
+        if direction in ('successors', 'both'):
+            successors = []
+            current_level = {node_id}
+            visited = {node_id}
+            
+            for depth in range(max_depth):
+                next_level = set()
+                for nid in current_level:
+                    if 0 <= nid < len(analysis.nodes):
+                        node = analysis.nodes[nid]
+                        for dep_id in node.dependents:
+                            if dep_id not in visited:
+                                successors.append(dep_id)
+                                next_level.add(dep_id)
+                                visited.add(dep_id)
+                
+                if not next_level:
+                    break
+                current_level = next_level
+            
+            result['successors'] = successors
+        
+        return result
+    
+    def detect_subgraph_patterns(
+        self, 
+        analysis: ModelAnalysis
+    ) -> List[Dict[str, Any]]:
+        """
+        Detect common subgraph patterns in the model.
+        
+        Patterns detected:
+        - Conv-BN-Relu (convolution block)
+        - Conv-BN (convolution with normalization)
+        - Attention block (MatMul-Softmax-MatMul)
+        - SE block (GlobalPool-FC-Relu-FC-Sigmoid-Mul)
+        - Residual connection (Add with skip)
+        - LayerNorm pattern
+        
+        Returns:
+            List of detected patterns with node IDs
+        """
+        patterns = []
+        nodes = analysis.nodes
+        node_count = len(nodes)
+        
+        # Build quick op_type lookup
+        op_type_map = {n.node_id: n.op_type for n in nodes}
+        
+        # Pattern 1: Conv-BN-Relu / Conv-BN-ReLU
+        for i, node in enumerate(nodes):
+            if node.op_type == 'Conv':
+                # Check for BN after Conv
+                for dep_id in node.dependents:
+                    if dep_id < node_count and nodes[dep_id].op_type == 'BatchNormalization':
+                        bn_node = nodes[dep_id]
+                        # Check for Relu after BN
+                        for relu_id in bn_node.dependents:
+                            if relu_id < node_count and nodes[relu_id].op_type in ('Relu', 'LeakyRelu'):
+                                patterns.append({
+                                    'pattern_type': 'Conv-BN-Relu',
+                                    'node_ids': [i, dep_id, relu_id],
+                                    'op_sequence': ['Conv', 'BatchNormalization', nodes[relu_id].op_type]
+                                })
+                        # Also record Conv-BN without Relu
+                        if not any(p['pattern_type'] == 'Conv-BN-Relu' and i in p['node_ids'] for p in patterns):
+                            patterns.append({
+                                'pattern_type': 'Conv-BN',
+                                'node_ids': [i, dep_id],
+                                'op_sequence': ['Conv', 'BatchNormalization']
+                            })
+        
+        # Pattern 2: Attention pattern (MatMul-Softmax-MatMul)
+        for i, node in enumerate(nodes):
+            if node.op_type == 'MatMul':
+                for softmax_id in node.dependents:
+                    if softmax_id < node_count and nodes[softmax_id].op_type == 'Softmax':
+                        softmax_node = nodes[softmax_id]
+                        for matmul2_id in softmax_node.dependents:
+                            if matmul2_id < node_count and nodes[matmul2_id].op_type == 'MatMul':
+                                patterns.append({
+                                    'pattern_type': 'Attention',
+                                    'node_ids': [i, softmax_id, matmul2_id],
+                                    'op_sequence': ['MatMul', 'Softmax', 'MatMul'],
+                                    'description': 'Self-attention QK^T * V pattern'
+                                })
+        
+        # Pattern 3: Einsum attention (single Einsum for attention)
+        for i, node in enumerate(nodes):
+            if node.op_type == 'Einsum':
+                # Check if this looks like attention
+                equation = node.attributes.get('equation', '')
+                if 'bhid' in equation or 'bhjd' in equation or 'bhij' in equation:
+                    patterns.append({
+                        'pattern_type': 'Einsum-Attention',
+                        'node_ids': [i],
+                        'op_sequence': ['Einsum'],
+                        'description': f'Attention via Einsum: {equation}',
+                        'is_blocker': True
+                    })
+        
+        # Pattern 4: Residual/Skip connection (Add with two different depth inputs)
+        for i, node in enumerate(nodes):
+            if node.op_type == 'Add' and len(node.dependencies) >= 2:
+                deps = node.dependencies
+                if len(deps) >= 2:
+                    # Check if inputs come from different depths (skip connection)
+                    dep_depths = []
+                    for dep_id in deps:
+                        if dep_id >= 0:
+                            chain = self.get_dependency_chain(analysis, dep_id, 'predecessors', max_depth=5)
+                            dep_depths.append(len(chain.get('predecessors', [])))
+                    
+                    # If depth difference > 2, likely a skip connection
+                    if dep_depths and max(dep_depths) - min(dep_depths) > 2:
+                        patterns.append({
+                            'pattern_type': 'Residual',
+                            'node_ids': [i] + deps,
+                            'op_sequence': ['Add (residual)'],
+                            'description': 'Skip/residual connection'
+                        })
+        
+        # Pattern 5: LayerNorm decomposition (ReduceMean-Sub-Mul-ReduceMean-Add-Sqrt-Div-Mul-Add)
+        for i, node in enumerate(nodes):
+            if node.op_type == 'ReduceMean':
+                # Look for Sub following ReduceMean
+                for sub_id in node.dependents:
+                    if sub_id < node_count and nodes[sub_id].op_type == 'Sub':
+                        # This might be start of LayerNorm decomposition
+                        patterns.append({
+                            'pattern_type': 'LayerNorm-Decomposed',
+                            'node_ids': [i, sub_id],
+                            'op_sequence': ['ReduceMean', 'Sub', '...'],
+                            'description': 'Possible LayerNorm decomposition'
+                        })
+                        break
+        
+        # Pattern 6: SE Block (Squeeze-and-Excitation)
+        for i, node in enumerate(nodes):
+            if node.op_type in ('GlobalAveragePool', 'ReduceMean'):
+                # Look for FC/Conv following
+                for fc1_id in node.dependents:
+                    if fc1_id < node_count and nodes[fc1_id].op_type in ('Gemm', 'Conv', 'MatMul'):
+                        fc1_node = nodes[fc1_id]
+                        # Look for activation
+                        for act_id in fc1_node.dependents:
+                            if act_id < node_count and nodes[act_id].op_type in ('Relu', 'Sigmoid', 'HardSigmoid'):
+                                patterns.append({
+                                    'pattern_type': 'SE-Block',
+                                    'node_ids': [i, fc1_id, act_id],
+                                    'op_sequence': [node.op_type, nodes[fc1_id].op_type, nodes[act_id].op_type],
+                                    'description': 'Squeeze-and-Excitation block'
+                                })
+                                break
+        
+        return patterns
+    
+    def get_node_context_for_surgery(
+        self, 
+        analysis: ModelAnalysis, 
+        node_id: int
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive context for a node for surgery recommendations.
+        
+        Returns all information needed by LLM to understand and fix the node.
+        """
+        if node_id < 0 or node_id >= len(analysis.nodes):
+            return {}
+        
+        node = analysis.nodes[node_id]
+        total_nodes = len(analysis.nodes)
+        
+        # Get dependency chain
+        chains = self.get_dependency_chain(analysis, node_id, 'both', max_depth=3)
+        
+        # Get immediate predecessor/successor details
+        predecessor_details = []
+        for dep_id in node.dependencies:
+            if 0 <= dep_id < total_nodes:
+                dep_node = analysis.nodes[dep_id]
+                predecessor_details.append({
+                    'node_id': dep_id,
+                    'name': dep_node.name,
+                    'op_type': dep_node.op_type,
+                    'output_shapes': [list(s) if s else None for s in dep_node.output_shapes]
+                })
+        
+        successor_details = []
+        for dep_id in node.dependents:
+            if 0 <= dep_id < total_nodes:
+                dep_node = analysis.nodes[dep_id]
+                successor_details.append({
+                    'node_id': dep_id,
+                    'name': dep_node.name,
+                    'op_type': dep_node.op_type,
+                    'input_shapes': [list(s) if s else None for s in dep_node.input_shapes]
+                })
+        
+        # Detect patterns this node participates in
+        all_patterns = self.detect_subgraph_patterns(analysis)
+        node_patterns = [p for p in all_patterns if node_id in p.get('node_ids', [])]
+        
+        return {
+            'node_id': node_id,
+            'name': node.name,
+            'op_type': node.op_type,
+            'graph_position': node_id / total_nodes if total_nodes > 0 else 0.5,
+            'total_nodes': total_nodes,
+            
+            # Shapes and types
+            'input_shapes': [list(s) if s else None for s in node.input_shapes],
+            'output_shapes': [list(s) if s else None for s in node.output_shapes],
+            'input_types': node.input_types,
+            'output_types': node.output_types,
+            
+            # Attributes
+            'attributes': node.attributes,
+            
+            # Connectivity
+            'inputs': node.inputs,
+            'outputs': node.outputs,
+            'predecessors': predecessor_details,
+            'successors': successor_details,
+            
+            # Extended chains
+            'predecessor_chain': chains.get('predecessors', [])[:10],
+            'successor_chain': chains.get('successors', [])[:10],
+            
+            # Patterns
+            'patterns': node_patterns,
+            
+            # Blocker info
+            'is_compilation_blocker': node.is_compilation_blocker,
+            'blocker_reason': node.blocker_reason
+        }
+    
+    def get_all_tensor_info(self, model_path: str) -> Dict[str, Dict]:
+        """
+        Get complete tensor information for all tensors in the model.
+        
+        Returns dict mapping tensor name to {shape, dtype, is_input, is_output, is_initializer}
+        """
+        model = onnx.load(model_path)
+        
+        try:
+            model = shape_inference.infer_shapes(model)
+        except:
+            pass
+        
+        graph = model.graph
+        tensor_info = {}
+        
+        # Build shape and type tables
+        shape_table, type_table = self._build_tensor_tables(graph)
+        
+        # Get initializer names
+        initializer_names = {init.name for init in graph.initializer}
+        
+        # Get input/output names
+        input_names = {vi.name for vi in graph.input if vi.name not in initializer_names}
+        output_names = {vi.name for vi in graph.output}
+        
+        # All tensors from value_info, inputs, outputs
+        all_tensor_names = set(shape_table.keys()) | input_names | output_names
+        
+        # Add tensors from node inputs/outputs
+        for node in graph.node:
+            all_tensor_names.update(node.input)
+            all_tensor_names.update(node.output)
+        
+        # Remove empty names
+        all_tensor_names.discard('')
+        
+        for name in all_tensor_names:
+            shape = shape_table.get(name)
+            dtype = type_table.get(name, 'unknown')
+            
+            tensor_info[name] = {
+                'name': name,
+                'shape': list(shape) if shape else None,
+                'dtype': dtype,
+                'is_input': name in input_names,
+                'is_output': name in output_names,
+                'is_initializer': name in initializer_names,
+                'is_dynamic': shape and any(isinstance(d, str) or d is None for d in shape)
+            }
+        
+        return tensor_info
+
+
 if __name__ == "__main__":
     import sys
     import json

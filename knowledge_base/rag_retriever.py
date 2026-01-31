@@ -118,8 +118,18 @@ class RAGRetriever:
                 self.kb = KnowledgeBase.load(str(self.kb_path))
                 print(f"Loaded knowledge base: {len(self.kb.chunks)} chunks")
             except ValueError as e:
-                print(f"Warning: {e}")
-                self.kb = KnowledgeBase(chunks=[])
+                # Old VectorStore format detected - try to convert it
+                if "VectorStore" in str(e):
+                    print(f"Warning: {e}")
+                    print("Attempting to convert old VectorStore format...")
+                    self.kb = self._convert_vectorstore_to_kb(str(self.kb_path))
+                    if self.kb.chunks:
+                        print(f"Converted knowledge base: {len(self.kb.chunks)} chunks")
+                    else:
+                        print("Warning: Conversion resulted in empty knowledge base")
+                else:
+                    print(f"Warning: {e}")
+                    self.kb = KnowledgeBase(chunks=[])
             except Exception as e:
                 print(f"Warning: Could not load knowledge base: {e}")
                 self.kb = KnowledgeBase(chunks=[])
@@ -140,6 +150,215 @@ class RAGRetriever:
         
         # Cache for query embeddings (to avoid repeated API calls)
         self._query_embedding_cache: Dict[str, List[float]] = {}
+    
+    def _convert_vectorstore_to_kb(self, kb_path: str) -> KnowledgeBase:
+        """
+        Convert old VectorStore format to new KnowledgeBase format.
+        
+        Parses the VectorStore metadata to extract pattern information.
+        """
+        import pickle
+        import re
+        
+        try:
+            with open(kb_path, 'rb') as f:
+                vs = pickle.load(f)
+            
+            chunks = []
+            chunk_id = 0
+            
+            for idx, meta in enumerate(vs.metadata):
+                model_name = meta.get('model_name', f'unknown_{idx}')
+                summary = meta.get('summary', '')
+                text = meta.get('text', '')
+                
+                # Detect model category from name
+                model_category = self._detect_category_from_name(model_name)
+                
+                # Parse removed operations from summary
+                removed_ops = self._parse_ops_from_summary(summary, 'Removed operations:')
+                added_ops = self._parse_ops_from_summary(summary, 'Added operations:')
+                
+                # Get embedding if available
+                embedding = vs.embeddings[idx] if idx < len(vs.embeddings) else None
+                
+                # Create main chunk for the model transformation
+                main_chunk = KnowledgeChunk(
+                    id=f"vs_model_{chunk_id}",
+                    source="dataset",
+                    content=text or summary,
+                    metadata={
+                        'model_name': model_name,
+                        'model_category': model_category,
+                        'summary': summary,
+                        'removed_ops': removed_ops,
+                        'added_ops': added_ops,
+                    },
+                    embedding=embedding
+                )
+                chunks.append(main_chunk)
+                chunk_id += 1
+                
+                # Create pattern chunks for removed operations
+                if removed_ops:
+                    for op in removed_ops:
+                        pattern_chunk = KnowledgeChunk(
+                            id=f"vs_pattern_remove_{chunk_id}",
+                            source="dataset",
+                            content=f"Pattern: Remove {op} operations in {model_category} models. "
+                                    f"Example: {model_name} removed {op} nodes for compilation.",
+                            metadata={
+                                'pattern_name': f'Remove {op}',
+                                'pattern_type': 'removal',
+                                'model_category': model_category,
+                                'op_types': [op],
+                                'frequency': 1,  # Will be aggregated later
+                                'example_models': [model_name],
+                                'context': {'position': 'any'},
+                            }
+                        )
+                        chunks.append(pattern_chunk)
+                        chunk_id += 1
+                
+                # Create pattern chunks for added operations
+                if added_ops:
+                    for op in added_ops:
+                        pattern_chunk = KnowledgeChunk(
+                            id=f"vs_pattern_add_{chunk_id}",
+                            source="dataset",
+                            content=f"Pattern: Add {op} operations in {model_category} models. "
+                                    f"Example: {model_name} added {op} nodes for compilation.",
+                            metadata={
+                                'pattern_name': f'Add {op}',
+                                'pattern_type': 'addition',
+                                'model_category': model_category,
+                                'op_types': [op],
+                                'frequency': 1,
+                                'example_models': [model_name],
+                                'context': {'position': 'any'},
+                            }
+                        )
+                        chunks.append(pattern_chunk)
+                        chunk_id += 1
+            
+            # Aggregate patterns to compute real frequencies
+            chunks = self._aggregate_pattern_frequencies(chunks)
+            
+            return KnowledgeBase(chunks=chunks, version="1.0.0-converted")
+            
+        except Exception as e:
+            print(f"Error converting VectorStore: {e}")
+            import traceback
+            traceback.print_exc()
+            return KnowledgeBase(chunks=[])
+    
+    def _detect_category_from_name(self, model_name: str) -> str:
+        """Detect model category from model name."""
+        name_lower = model_name.lower()
+        
+        if 'yolo' in name_lower:
+            return 'YOLO'
+        elif 'vit' in name_lower or 'vision' in name_lower:
+            return 'ViT'
+        elif 't5' in name_lower or 'mt5' in name_lower:
+            return 'Transformer'
+        elif 'bert' in name_lower or 'gpt' in name_lower:
+            return 'Transformer'
+        elif 'troc' in name_lower or 'ocr' in name_lower:
+            return 'Transformer'
+        elif 'marian' in name_lower or 'translation' in name_lower:
+            return 'Transformer'
+        elif 'resnet' in name_lower or 'mobilenet' in name_lower or 'cnn' in name_lower:
+            return 'CNN'
+        elif 'midas' in name_lower or 'depth' in name_lower:
+            return 'CNN'
+        elif 'efficient' in name_lower:
+            return 'Transformer'
+        else:
+            return 'Other'
+    
+    def _parse_ops_from_summary(self, summary: str, prefix: str) -> List[str]:
+        """Parse operation list from summary text."""
+        import re
+        
+        # Find the section starting with prefix
+        if prefix not in summary:
+            return []
+        
+        start_idx = summary.find(prefix) + len(prefix)
+        # Find the end (next semicolon or end of string)
+        end_idx = summary.find(';', start_idx)
+        if end_idx == -1:
+            end_idx = len(summary)
+        
+        ops_text = summary[start_idx:end_idx].strip()
+        
+        # Split by comma and clean up
+        ops = [op.strip() for op in ops_text.split(',') if op.strip()]
+        
+        return ops
+    
+    def _aggregate_pattern_frequencies(self, chunks: List[KnowledgeChunk]) -> List[KnowledgeChunk]:
+        """
+        Aggregate pattern chunks to compute real frequencies.
+        
+        Merges duplicate patterns and sums their frequencies.
+        """
+        # Map pattern_type to action word for content generation
+        action_word_map = {
+            'removal': 'Remove',
+            'addition': 'Add',
+            'replacement': 'Replace',
+        }
+        
+        # Separate model chunks from pattern chunks
+        model_chunks = []
+        pattern_map = {}  # key: (pattern_type, op_type, category) -> chunk
+        
+        for chunk in chunks:
+            if chunk.metadata.get('pattern_type'):
+                # This is a pattern chunk
+                pattern_type = chunk.metadata.get('pattern_type')
+                op_types = chunk.metadata.get('op_types', [])
+                category = chunk.metadata.get('model_category', 'Other')
+                
+                for op in op_types:
+                    key = (pattern_type, op, category)
+                    
+                    if key in pattern_map:
+                        # Merge with existing
+                        existing = pattern_map[key]
+                        existing.metadata['frequency'] = existing.metadata.get('frequency', 1) + 1
+                        example_models = existing.metadata.get('example_models', [])
+                        new_models = chunk.metadata.get('example_models', [])
+                        for model in new_models:
+                            if model not in example_models:
+                                example_models.append(model)
+                        existing.metadata['example_models'] = example_models
+                        # Update content to reflect frequency using correct action word
+                        action_word = action_word_map.get(pattern_type, pattern_type.capitalize())
+                        existing.content = (
+                            f"Pattern: {action_word} {op} operations in {category} models. "
+                            f"Seen in {existing.metadata['frequency']} models: {', '.join(example_models[:5])}."
+                        )
+                    else:
+                        # Add new pattern - also fix content for initial chunks
+                        action_word = action_word_map.get(pattern_type, pattern_type.capitalize())
+                        chunk.content = (
+                            f"Pattern: {action_word} {chunk.metadata.get('op_types', [''])[0]} operations "
+                            f"in {category} models. Example: {chunk.metadata.get('example_models', [''])[0]}."
+                        )
+                        pattern_map[key] = chunk
+            else:
+                model_chunks.append(chunk)
+        
+        # Combine results
+        result = model_chunks + list(pattern_map.values())
+        
+        # Sort patterns by frequency (descending)
+        result.sort(key=lambda c: c.metadata.get('frequency', 0), reverse=True)
+        
+        return result
     
     def retrieve(
         self,
@@ -475,9 +694,11 @@ def detect_model_category(model_path: str) -> str:
         return "YOLO"
     elif 'vit' in path_lower or 'vision_transformer' in path_lower:
         return "ViT"
-    elif 't5' in path_lower or 'transformer' in path_lower or 'bert' in path_lower:
+    elif any(kw in path_lower for kw in ['t5', 'transformer', 'bert', 'marian', 'troc', 'gpt', 'efficient_at']):
         return "Transformer"
     elif 'cnn' in path_lower or 'resnet' in path_lower or 'mobilenet' in path_lower:
+        return "CNN"
+    elif 'midas' in path_lower or 'depth' in path_lower:
         return "CNN"
     else:
         # Try to infer from model structure

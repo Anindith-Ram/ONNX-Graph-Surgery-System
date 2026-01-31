@@ -8,10 +8,14 @@ This module provides:
 - Enhanced diagnostics for feedback collection
 - Unified pipeline combining planning with execution
 - LLM client for structured outputs via LiteLLM + Instructor
+- NEW: Strategic planner for architecture-level planning
+- NEW: Execution orchestrator for region-based transformation
 
 Key components (new architecture):
 - GraphSurgeryExecutor: State machine for executing transformations
 - StrategyPlanner: Simplified strategy generation (replaces complex ToT)
+- StrategicPlanner: Architecture-level planning with divide-and-conquer
+- ExecutionOrchestrator: Region-based transformation with checkpoints
 - LLMClient: Unified LLM interface with structured outputs
 
 Backward compatibility aliases are provided for:
@@ -81,6 +85,23 @@ from agents.pipeline import (
     ReActToTPipeline,
 )
 
+# Strategic components (architecture-level planning)
+try:
+    from agents.strategic_planner import (
+        StrategicPlanner,
+        TransformationPlan,
+        TransformationRegion,
+        PlanningMode,
+    )
+    from agents.execution_orchestrator import (
+        ExecutionOrchestrator,
+        ExecutionReport,
+        ExecutionStatus,
+    )
+    STRATEGIC_AVAILABLE = True
+except ImportError:
+    STRATEGIC_AVAILABLE = False
+
 # Note: react_agent.py and tot_planner.py have been removed
 # Use GraphSurgeryExecutor and StrategyPlanner instead
 # Backward compatibility aliases are provided in executor.py and strategy_planner.py
@@ -149,6 +170,16 @@ __all__ = [
     "validate_model",
     "compare_with_ground_truth",
     "get_feedback",
+    
+    # === STRATEGIC COMPONENTS (Architecture-Level) ===
+    "StrategicPlanner",
+    "TransformationPlan",
+    "TransformationRegion",
+    "PlanningMode",
+    "ExecutionOrchestrator",
+    "ExecutionReport",
+    "ExecutionStatus",
+    "STRATEGIC_AVAILABLE",
     
     # === BACKWARD COMPATIBILITY ===
     "ToTConfig",  # -> StrategyConfig

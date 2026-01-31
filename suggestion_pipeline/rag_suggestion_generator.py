@@ -35,6 +35,14 @@ from suggestion_pipeline.suggestion_generator import (
 )
 from knowledge_base.rag_retriever import RAGRetriever, detect_model_category
 from knowledge_base.response_cache import cached_gemini_call
+
+# Import surgery database and context generator (optional - for enhanced context)
+try:
+    from knowledge_base.surgery_database import SurgeryDatabase
+    from knowledge_base.llm_context_generator import LLMContextGenerator
+    SURGERY_DB_AVAILABLE = True
+except ImportError:
+    SURGERY_DB_AVAILABLE = False
 from suggestion_pipeline.suggestion_scorer import SuggestionScorer
 from utilities.api_quota_manager import APIQuotaManager
 from utilities.checkpoint_manager import CheckpointManager
@@ -249,6 +257,19 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
             self.quota_manager = None
             self.checkpoint_manager = None
             # Keep the scorer from parent class (ConfidenceScorer) - don't override to None
+        
+        # Initialize surgery database and context generator (if available)
+        self.surgery_db = None
+        self.context_generator = None
+        surgery_db_path = os.path.join(os.path.dirname(kb_path), "surgery_database.json")
+        
+        if SURGERY_DB_AVAILABLE and os.path.exists(surgery_db_path):
+            try:
+                self.surgery_db = SurgeryDatabase.load(surgery_db_path)
+                self.context_generator = LLMContextGenerator(self.surgery_db)
+                print(f"Surgery database loaded ({self.surgery_db.total_models} models, {self.surgery_db.total_transformations} transformations)")
+            except Exception as e:
+                print(f"Warning: Could not load surgery database: {e}")
         
         if self.use_rag:
             if not api_key:
@@ -899,6 +920,77 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
         
         return suggestions
     
+    def _get_enriched_context(
+        self,
+        op_type: str,
+        model_category: str,
+        node_context: Optional[Dict] = None,
+        max_chunks: int = 5
+    ) -> str:
+        """
+        Get enriched context from both RAGRetriever and SurgeryDatabase.
+        
+        Combines:
+        1. Traditional RAG context (from knowledge base)
+        2. Surgery database context (WHY/HOW explanations)
+        
+        Args:
+            op_type: Operation type (e.g., "Einsum")
+            model_category: Model category (e.g., "Transformer")
+            node_context: Optional additional node context
+            max_chunks: Maximum chunks from RAG retriever
+            
+        Returns:
+            Combined context string for LLM prompts
+        """
+        context_parts = []
+        
+        # Part 1: Get context from surgery database (if available)
+        if self.context_generator:
+            try:
+                generated = self.context_generator.generate_blocker_context(
+                    op_type=op_type,
+                    model_category=model_category,
+                    node_context=node_context,
+                    max_examples=3
+                )
+                
+                if generated.relevance_score > 0.3:  # Only include if relevant
+                    surgery_context = generated.to_string(max_tokens=1500)
+                    if surgery_context.strip():
+                        context_parts.append("=== SURGERY DATABASE CONTEXT ===")
+                        context_parts.append(surgery_context)
+                        context_parts.append("")
+            except Exception as e:
+                # Silently fall back to RAG-only context
+                pass
+        
+        # Part 2: Get context from RAG retriever
+        if self.retriever:
+            try:
+                query = f"{op_type} {model_category} ONNX graph surgery compilation"
+                rag_context = self.retriever.retrieve(
+                    query=query,
+                    model_category=model_category,
+                    op_type=op_type,
+                    top_k=max_chunks
+                )
+                
+                if rag_context and rag_context.chunks:
+                    rag_text = rag_context.get_text(max_chunks=max_chunks)
+                    if rag_text.strip():
+                        context_parts.append("=== KNOWLEDGE BASE CONTEXT ===")
+                        context_parts.append(rag_text)
+            except Exception as e:
+                # Silently fall back to surgery-db-only context
+                pass
+        
+        # Combine contexts
+        if not context_parts:
+            return ""
+        
+        return "\n".join(context_parts)
+    
     def _enhance_suggestions_batch(
         self,
         suggestions: List[Suggestion],
@@ -918,28 +1010,22 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
         Returns:
             Tuple of (List of enhanced suggestions, count of enhancements applied)
         """
-        if not self.use_rag or not self.retriever or not suggestions:
+        if not self.use_rag or (not self.retriever and not self.context_generator) or not suggestions:
             return suggestions, 0
         
         # Use the first suggestion's op_type (they should all be the same after grouping)
         op_type = suggestions[0].location.op_type
         
-        # Build combined query for retrieval
-        query = f"{op_type} {model_category} ONNX graph surgery compilation"
-        
-        # Retrieve context once for the batch
-        context = self.retriever.retrieve(
-            query=query,
-            model_category=model_category,
+        # Get enriched context from both sources (surgery db + RAG retriever)
+        context_text = self._get_enriched_context(
             op_type=op_type,
-            top_k=5
+            model_category=model_category,
+            max_chunks=5
         )
         
-        if not context.chunks:
+        if not context_text.strip():
             # No relevant context found, return originals
             return suggestions, 0
-        
-        context_text = context.get_text(max_chunks=5)
         
         # Build batch prompt with all suggestions (include exact location info)
         suggestions_data = []
@@ -1610,15 +1696,17 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
             
             # Check if this is the right pattern type and category
             pattern_name = metadata.get('pattern_name', '').lower()
+            chunk_pattern_type = metadata.get('pattern_type', '').lower()
             chunk_category = metadata.get('model_category', 'Other')
             
-            # More flexible pattern matching for addition
+            # More flexible pattern matching - check both pattern_name and pattern_type
             if pattern_type == 'removal':
-                if 'remove' not in pattern_name and 'delete' not in pattern_name:
+                # Match if pattern_type is 'removal' OR pattern_name contains 'remove'/'delete'
+                if chunk_pattern_type != 'removal' and 'remove' not in pattern_name and 'delete' not in pattern_name:
                     continue
             elif pattern_type == 'addition':
-                # Match patterns that indicate addition
-                if not any(word in pattern_name for word in ['add', 'insert', 'create', 'introduce', 'append']):
+                # Match if pattern_type is 'addition' OR pattern_name contains add-related words
+                if chunk_pattern_type != 'addition' and not any(word in pattern_name for word in ['add', 'insert', 'create', 'introduce', 'append']):
                     continue
             
             # Category matching: allow 'Other' to match any category, or exact match
@@ -1628,6 +1716,13 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
             # Extract operation types
             op_types = metadata.get('op_types', [])
             frequency = metadata.get('frequency', 0)
+            
+            # Also try to extract from 'removed_ops' or 'added_ops' if op_types is empty
+            if not op_types:
+                if pattern_type == 'removal':
+                    op_types = metadata.get('removed_ops', [])
+                elif pattern_type == 'addition':
+                    op_types = metadata.get('added_ops', [])
             
             if frequency >= min_frequency:
                 for op_type in op_types:
@@ -1651,7 +1746,8 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
             'model_category': model_category,
             'position': 'any',  # 'near_output', 'near_input', 'any'
             'surrounding_ops': [],
-            'confidence': 0.0
+            'confidence': 0.0,
+            'example_models': []
         }
         
         # Find matching chunk
@@ -1661,19 +1757,32 @@ IMPORTANT: Return ONLY valid JSON. Escape all quotes inside strings with backsla
             
             metadata = chunk.metadata if hasattr(chunk, 'metadata') else {}
             op_types = metadata.get('op_types', [])
+            
+            # Also check removed_ops and added_ops
+            if not op_types:
+                op_types = metadata.get('removed_ops', []) + metadata.get('added_ops', [])
+            
             chunk_category = metadata.get('model_category', 'Other')
             
-            if op_type in op_types and (chunk_category == model_category or model_category == 'Other'):
-                context['frequency'] = metadata.get('frequency', 0)
+            # Match if op_type is in the chunk's op_types and category matches (or is 'Other')
+            if op_type in op_types and (chunk_category == model_category or model_category == 'Other' or chunk_category == 'Other'):
+                context['frequency'] = max(context['frequency'], metadata.get('frequency', 1))
                 chunk_context = metadata.get('context', {})
                 if isinstance(chunk_context, dict):
                     context['position'] = chunk_context.get('position', 'any')
                     context['surrounding_ops'] = chunk_context.get('surrounding_ops', [])
                 
+                # Get example models
+                example_models = metadata.get('example_models', [])
+                if example_models:
+                    for model in example_models:
+                        if model not in context['example_models']:
+                            context['example_models'].append(model)
+                
                 # Calculate confidence based on frequency
                 # Higher frequency = higher confidence
                 context['confidence'] = min(context['frequency'] / 5.0, 1.0)
-                break
+                # Don't break - continue to aggregate from multiple matching chunks
         
         return context
     

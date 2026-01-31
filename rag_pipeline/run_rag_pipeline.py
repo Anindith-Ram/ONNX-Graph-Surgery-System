@@ -55,15 +55,25 @@ def setup_pipeline(api_key: str, rebuild_kb: bool = False, use_enhanced: bool = 
         
         if not features_file.exists() or rebuild_kb:
             if use_enhanced:
-                print("Extracting enhanced features with Gemini...")
-                from legacy.enhanced_feature_extractor import extract_all_features_enhanced
-                features = extract_all_features_enhanced(
-                    str(map_dataset_dir),
-                    train_models,
-                    api_key,
-                    str(features_file)
-                )
-            else:
+                # Enhanced feature extraction is deprecated - use transformation extractor instead
+                print("Note: Enhanced feature extraction (Gemini-based) is deprecated.")
+                print("Using rule-based extraction with transformation extractor...")
+                try:
+                    from core_analysis.transformation_extractor import TransformationExtractor
+                    extractor = TransformationExtractor(verbose=True)
+                    features = []
+                    for model_name in train_models:
+                        map_file = map_dataset_dir / f"{model_name}.txt"
+                        if map_file.exists():
+                            # Basic feature extraction
+                            features.append({'model_name': model_name, 'map_file': str(map_file)})
+                    with open(features_file, 'w') as f:
+                        json.dump(features, f, indent=2)
+                except Exception as e:
+                    print(f"Warning: Could not use transformation extractor: {e}")
+                    use_enhanced = False  # Fall back to rule-based
+            
+            if not use_enhanced:
                 print("Extracting features from model maps...")
                 from core_analysis.feature_extractor import extract_all_features
                 all_features = extract_all_features(str(map_dataset_dir), None)
