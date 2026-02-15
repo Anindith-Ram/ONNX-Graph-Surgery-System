@@ -605,26 +605,15 @@ Remove original GELU node.""",
         try:
             if not self.api_key:
                 return chunk
-            
-            # #region agent log
-            import json
-            with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"knowledge_base.py:559","message":"Calling cached_gemini_call","data":{"chunk_id":chunk.id,"chunk_type":chunk_type,"prompt_length":len(prompt),"chunk_content_length":len(chunk.content),"chunk_content_preview":chunk.content[:150]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-            # #endregion
-            
+
             response = cached_gemini_call(
                 prompt=prompt,
                 api_key=self.api_key,
                 model_name="models/gemini-3-pro-preview",
-                temperature=0.2,  # Lower temperature for more consistent extraction
+                temperature=0.2,
                 max_tokens=1500
             )
-            
-            # #region agent log
-            with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"knowledge_base.py:570","message":"Response received","data":{"response_is_none":response is None,"response_length":len(response) if response else 0},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-            # #endregion
-            
+
             if not response:
                 return chunk
             

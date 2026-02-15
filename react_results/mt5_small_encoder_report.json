@@ -1,0 +1,2201 @@
+{
+  "success": true,
+  "model_path": "dataset/mT5_Small/Original/mt5_small_encoder.onnx",
+  "model_name": "mt5_small_encoder",
+  "analysis": {
+    "model_name": "mt5_small_encoder",
+    "architecture_type": "Transformer Encoder",
+    "architecture_reasoning": "The model name 'mt5_small_encoder' explicitly identifies it as the encoder component of the MT5 (Multilingual T5) architecture. The operator distribution confirms this: high counts of MatMul (72), Add (60), and Mul (75) are characteristic of Transformer blocks. The presence of 'ReduceMean' (17) suggests T5's specific LayerNorm variant (RMSNorm without mean centering, or similar). The repeated residual blocks (e.g., 'residual_61', 'residual_69') align with the stacked encoder layers of T5 Small (typically 8 layers). The specific node names like '/encoder/block.0/layer.0/SelfAttention' provide definitive proof.",
+    "detected_patterns": [
+      "T5 Relative Position Bias",
+      "Dynamic Shape Reshaping",
+      "Int64 Indexing/Shape Tensor Propagation",
+      "Self-Attention Blocks"
+    ],
+    "blockers": [
+      {
+        "node_name": "/encoder/block.0/layer.0/SelfAttention/Where",
+        "op_type": "Where",
+        "reason": "The 'Where' operation is not supported on the MLA accelerator. It is likely used here for masking in the self-attention mechanism (e.g., causal masking or padding masking).",
+        "severity": "Critical",
+        "region": "Attention Masking"
+      },
+      {
+        "node_name": "/encoder/embed_tokens/Gather",
+        "op_type": "Gather",
+        "reason": "Dynamic indexing with Int64 tensors. The MLA requires static indices or specific supported types for Gather operations. The input tensor '/encoder/Reshape_output_0' is Int64, which violates the supported data types (uint8, float32, int32, float16, int8).",
+        "severity": "High",
+        "region": "Embedding"
+      },
+      {
+        "node_name": "/encoder/block.0/layer.0/SelfAttention/relative_attention_bias/Gather",
+        "op_type": "Gather",
+        "reason": "This Gather op computes relative position embeddings. It fails due to Int64 input tensors ('/encoder/block.0/layer.0/SelfAttention/Add_1_output_0'). T5 uses relative position buckets calculated dynamically, often resulting in Int64 index tensors that need casting to Int32 for MLA compatibility.",
+        "severity": "High",
+        "region": "Relative Position Bias"
+      },
+      {
+        "node_name": "/Reshape",
+        "op_type": "Reshape",
+        "reason": "Global input reshaping with Int64 tensors. The model attempts to reshape inputs using shape tensors derived from dynamic dimensions, which propagate Int64 types that are unsupported on the accelerator.",
+        "severity": "Medium",
+        "region": "Input Processing"
+      },
+      {
+        "node_name": "/encoder/block.X/layer.0/SelfAttention/Reshape_X",
+        "op_type": "Reshape",
+        "reason": "Repeated pattern across all 8 blocks (block.0 to block.7). These Reshape ops manage the [Batch, SeqLen, Heads, HeadDim] transformations. They fail because the shape inputs are dynamic Int64 tensors derived from the input sequence length, preventing static compilation.",
+        "severity": "Medium",
+        "region": "Attention Head Projection"
+      },
+      {
+        "node_name": "/encoder/block.0/layer.0/SelfAttention/Slice",
+        "op_type": "Slice",
+        "reason": "Dynamic slicing logic associated with relative attention buckets. The slice parameters (starts/ends) are likely computed dynamically (Int64), preventing the compiler from determining static memory requirements.",
+        "severity": "Medium",
+        "region": "Relative Position Bias"
+      }
+    ],
+    "recommended_approach": "transformer_optimization",
+    "confidence": 0.95,
+    "analysis_payload": {
+      "model_summary": {
+        "model_name": "mt5_small_encoder",
+        "node_count": 544,
+        "input_count": 1,
+        "output_count": 1,
+        "top_ops": [
+          [
+            "Constant",
+            138
+          ],
+          [
+            "Mul",
+            75
+          ],
+          [
+            "MatMul",
+            72
+          ],
+          [
+            "Add",
+            60
+          ],
+          [
+            "Reshape",
+            34
+          ],
+          [
+            "Transpose",
+            33
+          ],
+          [
+            "Cast",
+            29
+          ],
+          [
+            "Pow",
+            25
+          ],
+          [
+            "Div",
+            19
+          ],
+          [
+            "ReduceMean",
+            17
+          ]
+        ]
+      },
+      "architecture_summary": {
+        "model_name": "mt5_small_encoder",
+        "architecture_type": "Transformer",
+        "architecture_confidence": 0.95,
+        "blocks": [
+          {
+            "block_id": "residual_61",
+            "block_type": "residual",
+            "start_node_id": 61,
+            "end_node_id": 61,
+            "node_ids": [
+              61
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 32)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_69",
+            "block_type": "residual",
+            "start_node_id": 69,
+            "end_node_id": 69,
+            "node_ids": [
+              69
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 63)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_88",
+            "block_type": "residual",
+            "start_node_id": 88,
+            "end_node_id": 88,
+            "node_ids": [
+              88
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_98",
+            "block_type": "residual",
+            "start_node_id": 98,
+            "end_node_id": 98,
+            "node_ids": [
+              98
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_123",
+            "block_type": "residual",
+            "start_node_id": 123,
+            "end_node_id": 123,
+            "node_ids": [
+              123
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 62)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_131",
+            "block_type": "residual",
+            "start_node_id": 131,
+            "end_node_id": 131,
+            "node_ids": [
+              131
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 31)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_150",
+            "block_type": "residual",
+            "start_node_id": 150,
+            "end_node_id": 150,
+            "node_ids": [
+              150
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_160",
+            "block_type": "residual",
+            "start_node_id": 160,
+            "end_node_id": 160,
+            "node_ids": [
+              160
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_185",
+            "block_type": "residual",
+            "start_node_id": 185,
+            "end_node_id": 185,
+            "node_ids": [
+              185
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 124)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_193",
+            "block_type": "residual",
+            "start_node_id": 193,
+            "end_node_id": 193,
+            "node_ids": [
+              193
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 31)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_212",
+            "block_type": "residual",
+            "start_node_id": 212,
+            "end_node_id": 212,
+            "node_ids": [
+              212
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_222",
+            "block_type": "residual",
+            "start_node_id": 222,
+            "end_node_id": 222,
+            "node_ids": [
+              222
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_247",
+            "block_type": "residual",
+            "start_node_id": 247,
+            "end_node_id": 247,
+            "node_ids": [
+              247
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 186)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_255",
+            "block_type": "residual",
+            "start_node_id": 255,
+            "end_node_id": 255,
+            "node_ids": [
+              255
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 31)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_274",
+            "block_type": "residual",
+            "start_node_id": 274,
+            "end_node_id": 274,
+            "node_ids": [
+              274
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_284",
+            "block_type": "residual",
+            "start_node_id": 284,
+            "end_node_id": 284,
+            "node_ids": [
+              284
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_309",
+            "block_type": "residual",
+            "start_node_id": 309,
+            "end_node_id": 309,
+            "node_ids": [
+              309
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 248)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_317",
+            "block_type": "residual",
+            "start_node_id": 317,
+            "end_node_id": 317,
+            "node_ids": [
+              317
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 31)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_336",
+            "block_type": "residual",
+            "start_node_id": 336,
+            "end_node_id": 336,
+            "node_ids": [
+              336
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_346",
+            "block_type": "residual",
+            "start_node_id": 346,
+            "end_node_id": 346,
+            "node_ids": [
+              346
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_371",
+            "block_type": "residual",
+            "start_node_id": 371,
+            "end_node_id": 371,
+            "node_ids": [
+              371
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 310)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_379",
+            "block_type": "residual",
+            "start_node_id": 379,
+            "end_node_id": 379,
+            "node_ids": [
+              379
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 31)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_398",
+            "block_type": "residual",
+            "start_node_id": 398,
+            "end_node_id": 398,
+            "node_ids": [
+              398
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_408",
+            "block_type": "residual",
+            "start_node_id": 408,
+            "end_node_id": 408,
+            "node_ids": [
+              408
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_433",
+            "block_type": "residual",
+            "start_node_id": 433,
+            "end_node_id": 433,
+            "node_ids": [
+              433
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 372)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_441",
+            "block_type": "residual",
+            "start_node_id": 441,
+            "end_node_id": 441,
+            "node_ids": [
+              441
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 31)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_460",
+            "block_type": "residual",
+            "start_node_id": 460,
+            "end_node_id": 460,
+            "node_ids": [
+              460
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_470",
+            "block_type": "residual",
+            "start_node_id": 470,
+            "end_node_id": 470,
+            "node_ids": [
+              470
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_495",
+            "block_type": "residual",
+            "start_node_id": 495,
+            "end_node_id": 495,
+            "node_ids": [
+              495
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 434)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_503",
+            "block_type": "residual",
+            "start_node_id": 503,
+            "end_node_id": 503,
+            "node_ids": [
+              503
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 31)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_522",
+            "block_type": "residual",
+            "start_node_id": 522,
+            "end_node_id": 522,
+            "node_ids": [
+              522
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 6)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          },
+          {
+            "block_id": "residual_532",
+            "block_type": "residual",
+            "start_node_id": 532,
+            "end_node_id": 532,
+            "node_ids": [
+              532
+            ],
+            "op_sequence": [
+              "Add"
+            ],
+            "description": "Residual connection (skip depth: 27)",
+            "attributes": {},
+            "has_blockers": false,
+            "blocker_nodes": [],
+            "blocker_reasons": [],
+            "input_blocks": [],
+            "output_blocks": []
+          }
+        ],
+        "data_flows": [
+          {
+            "path_id": "main",
+            "name": "main",
+            "block_sequence": [
+              "residual_61",
+              "residual_69",
+              "residual_88",
+              "residual_98",
+              "residual_123",
+              "residual_131",
+              "residual_150",
+              "residual_160",
+              "residual_185",
+              "residual_193",
+              "residual_212",
+              "residual_222",
+              "residual_247",
+              "residual_255",
+              "residual_274",
+              "residual_284",
+              "residual_309",
+              "residual_317",
+              "residual_336",
+              "residual_346",
+              "residual_371",
+              "residual_379",
+              "residual_398",
+              "residual_408",
+              "residual_433",
+              "residual_441",
+              "residual_460",
+              "residual_470",
+              "residual_495",
+              "residual_503",
+              "residual_522",
+              "residual_532"
+            ],
+            "is_main_path": true
+          }
+        ],
+        "total_nodes": 544,
+        "nodes_in_blocks": 32,
+        "block_coverage": 0.058823529411764705,
+        "num_transformer_layers": 0,
+        "num_attention_heads": 0,
+        "has_multi_scale": false,
+        "scale_levels": 0,
+        "blocks_with_blockers": 0,
+        "total_blocker_nodes": 0,
+        "recommended_strategy": "transformer_optimization",
+        "divide_and_conquer_recommended": false,
+        "suggested_split_points": []
+      },
+      "compilation_summary": {
+        "model_name": "mt5_small_encoder",
+        "total_nodes": 544,
+        "nodes_on_mla": 500,
+        "nodes_on_cvu": 0,
+        "nodes_on_apu": 44,
+        "blocker_count": 44,
+        "blocker_nodes": [
+          {
+            "node_index": 1,
+            "node_name": "/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor 'input_tensor': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "input_tensor",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 3,
+            "node_name": "/encoder/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/Reshape_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/encoder/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/Reshape_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/encoder/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 4,
+            "node_name": "/encoder/embed_tokens/Gather",
+            "op_type": "Gather",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Gather': Must have static indices for some cases",
+              "Tensor '/encoder/Reshape_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/Reshape_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 20,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 24,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 25,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 30,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Abs",
+            "op_type": "Abs",
+            "target": "MLA",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 32,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Less",
+            "op_type": "Less",
+            "target": "MLA",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Abs_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_4_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Abs_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_4_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 33,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Cast",
+            "op_type": "Cast",
+            "target": "MLA",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Abs_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Abs_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 43,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Add",
+            "op_type": "Add",
+            "target": "MLA",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Cast_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_8_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Cast_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_8_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 44,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Cast_2",
+            "op_type": "Cast",
+            "target": "MLA",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Add_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Add_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 48,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Where",
+            "op_type": "Where",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Where' is not supported on MLA"
+            ],
+            "warnings": [],
+            "tensor_violations": [],
+            "suggested_fixes": [
+              "Use Mul + Add pattern for simple cases, or split model"
+            ]
+          },
+          {
+            "node_index": 50,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Add_1",
+            "op_type": "Add",
+            "target": "MLA",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_10_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Where_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_10_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Where_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 51,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/relative_attention_bias/Gather",
+            "op_type": "Gather",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Gather': Must have static indices for some cases",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Add_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Add_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 58,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Slice",
+            "op_type": "Slice",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Slice': Must have static starts/ends/steps",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_12_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_13_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_11_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_14_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_12_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_13_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_11_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              },
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_14_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 67,
+            "node_name": "/encoder/block.0/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.0/layer.0/SelfAttention/Constant_16_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.0/layer.0/SelfAttention/Constant_16_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 114,
+            "node_name": "/encoder/block.1/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.1/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.1/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 118,
+            "node_name": "/encoder/block.1/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.1/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.1/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 119,
+            "node_name": "/encoder/block.1/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.1/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.1/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 129,
+            "node_name": "/encoder/block.1/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.1/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.1/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 176,
+            "node_name": "/encoder/block.2/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.2/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.2/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 180,
+            "node_name": "/encoder/block.2/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.2/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.2/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 181,
+            "node_name": "/encoder/block.2/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.2/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.2/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 191,
+            "node_name": "/encoder/block.2/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.2/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.2/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 238,
+            "node_name": "/encoder/block.3/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.3/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.3/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 242,
+            "node_name": "/encoder/block.3/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.3/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.3/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 243,
+            "node_name": "/encoder/block.3/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.3/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.3/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 253,
+            "node_name": "/encoder/block.3/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.3/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.3/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 300,
+            "node_name": "/encoder/block.4/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.4/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.4/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 304,
+            "node_name": "/encoder/block.4/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.4/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.4/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 305,
+            "node_name": "/encoder/block.4/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.4/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.4/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 315,
+            "node_name": "/encoder/block.4/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.4/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.4/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 362,
+            "node_name": "/encoder/block.5/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.5/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.5/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 366,
+            "node_name": "/encoder/block.5/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.5/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.5/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 367,
+            "node_name": "/encoder/block.5/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.5/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.5/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 377,
+            "node_name": "/encoder/block.5/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.5/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.5/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 424,
+            "node_name": "/encoder/block.6/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.6/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.6/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 428,
+            "node_name": "/encoder/block.6/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.6/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.6/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 429,
+            "node_name": "/encoder/block.6/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.6/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.6/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 439,
+            "node_name": "/encoder/block.6/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.6/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.6/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 486,
+            "node_name": "/encoder/block.7/layer.0/SelfAttention/Reshape",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.7/layer.0/SelfAttention/Constant_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.7/layer.0/SelfAttention/Constant_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 490,
+            "node_name": "/encoder/block.7/layer.0/SelfAttention/Reshape_1",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.7/layer.0/SelfAttention/Constant_1_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.7/layer.0/SelfAttention/Constant_1_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 491,
+            "node_name": "/encoder/block.7/layer.0/SelfAttention/Reshape_2",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.7/layer.0/SelfAttention/Constant_2_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.7/layer.0/SelfAttention/Constant_2_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          },
+          {
+            "node_index": 501,
+            "node_name": "/encoder/block.7/layer.0/SelfAttention/Reshape_3",
+            "op_type": "Reshape",
+            "target": "APU",
+            "is_blocker": true,
+            "blocker_reasons": [
+              "Operation 'Reshape': Must have static shape",
+              "Tensor '/encoder/block.7/layer.0/SelfAttention/Constant_3_output_0': Unsupported data type - got int64, expected uint8, float32, int32, float16, int8"
+            ],
+            "warnings": [],
+            "tensor_violations": [
+              {
+                "tensor_name": "/encoder/block.7/layer.0/SelfAttention/Constant_3_output_0",
+                "constraint": "Unsupported data type",
+                "actual_value": "int64",
+                "expected_value": "uint8, float32, int32, float16, int8",
+                "severity": "critical"
+              }
+            ],
+            "suggested_fixes": []
+          }
+        ],
+        "warning_count": 0,
+        "predicted_lm_files": 32,
+        "lm_file_reasons": [
+          "Multiple APU sections (32)"
+        ],
+        "blocker_ops": {
+          "Reshape": 34,
+          "Gather": 2,
+          "Abs": 1,
+          "Less": 1,
+          "Cast": 2,
+          "Add": 2,
+          "Where": 1,
+          "Slice": 1
+        },
+        "will_compile": false,
+        "compilation_score": 0.7573529411764706
+      }
+    }
+  },
+  "suggestions_count": 5,
+  "strategy": {
+    "strategy_id": "T5_STATIC_SHAPE_OPTIMIZATION_V1",
+    "strategy_reasoning": "The diagnosis confirms this is a T5 Encoder variant suffering from classic dynamic shape propagation issues inherent to HuggingFace T5 exports. The primary blockers are Int64 shape tensors driving Reshape operations and dynamic relative position bias calculations involving Gather/Slice. The strategy prioritizes 'staticizing' the graph: fixing input shapes to concrete values to allow constant folding of shape-calculating subgraphs (removing the Int64 blockers) and replacing the unsupported 'Where' op with arithmetic equivalents. This aligns with successful patterns observed in T5_Base and T5_Small datasets.",
+    "phases": [
+      {
+        "phase_id": "P1",
+        "name": "Static Shape Injection",
+        "objective": "Lock dynamic input dimensions (Batch, SeqLen) to concrete values to enable downstream constant folding.",
+        "target_op_types": [
+          "Input"
+        ],
+        "transformation_type": "shape_fixing",
+        "validation": "Verify model input shapes are [1, 512] (or target seq_len) instead of ['batch', 'sequence'].",
+        "dependencies": [],
+        "fallback": "Try multiple sequence length buckets (128, 256, 512) if single static shape is too restrictive."
+      },
+      {
+        "phase_id": "P2",
+        "name": "Shape Subgraph Folding",
+        "objective": "Eliminate the Int64 shape calculation subgraphs (Shape -> Gather -> Cast -> Reshape) by folding them into constants now that inputs are static.",
+        "target_op_types": [
+          "Shape",
+          "Gather",
+          "Cast",
+          "Reshape",
+          "Concat",
+          "Slice"
+        ],
+        "transformation_type": "constant_folding",
+        "validation": "Check if the number of 'Reshape' ops with dynamic input tensors (Int64) has decreased to zero. Verify 'Reshape' second inputs are now Initializers.",
+        "dependencies": [
+          "P1"
+        ],
+        "fallback": "Manually replace specific Reshape shape inputs with Constant nodes matching the P1 dimensions."
+      },
+      {
+        "phase_id": "P3",
+        "name": "Unsupported Op Replacement",
+        "objective": "Replace the unsupported 'Where' operation used in attention masking with a supported arithmetic equivalent (Mul + Add).",
+        "target_op_types": [
+          "Where"
+        ],
+        "transformation_type": "op_replacement",
+        "validation": "Ensure 0 'Where' nodes remain. Verify numerical equivalence of the attention mask output.",
+        "dependencies": [
+          "P2"
+        ],
+        "fallback": "If Where is used for complex control flow, attempt to decompose into Cast(Bool->Float) -> Mul."
+      },
+      {
+        "phase_id": "P4",
+        "name": "Int64 to Int32 Casting",
+        "objective": "Downcast any remaining necessary Int64 tensors (e.g., for Gather indices in embeddings or relative position bias) to Int32, which is supported by the MLA.",
+        "target_op_types": [
+          "Gather",
+          "Slice",
+          "Cast"
+        ],
+        "transformation_type": "type_casting",
+        "validation": "Scan all inputs to 'Gather' and 'Slice' ops; ensure data types are Int32, not Int64.",
+        "dependencies": [
+          "P2"
+        ],
+        "fallback": "Insert explicit Cast nodes before the consumer ops if global casting fails."
+      },
+      {
+        "phase_id": "P5",
+        "name": "Relative Position Bias Simplification",
+        "objective": "Simplify the relative attention bias calculation. The dynamic slicing and gathering often fail compilation. With static shapes, pre-compute the bias table if possible.",
+        "target_op_types": [
+          "Gather",
+          "Slice",
+          "Add"
+        ],
+        "transformation_type": "subgraph_simplification",
+        "validation": "Verify the subgraph generating relative position bias is fully constant-folded or uses only static Int32 indices.",
+        "dependencies": [
+          "P2",
+          "P4"
+        ],
+        "fallback": null
+      }
+    ],
+    "risk_assessment": "High risk associated with the Relative Position Bias subgraph. T5's relative attention uses complex indexing that may be hard to fully staticize without breaking the logic. If constant folding fails to eliminate the Int64 paths for Gather/Slice, the model will remain uncompilable on the target accelerator.",
+    "expected_success_rate": 0.85,
+    "divide_and_conquer": false
+  },
+  "execution_result": {
+    "phases": [
+      {
+        "phase_id": "P1",
+        "name": "Static Shape Injection",
+        "success": true,
+        "suggestions": {
+          "phase_id": "P1",
+          "phase_name": "Static Shape Injection",
+          "suggestions": [
+            {
+              "suggestion_id": "P1-S1",
+              "summary": "Lock graph input tensors to static dimensions [1, 512]",
+              "rationale": "The model currently uses dynamic dimensions (e.g., ['batch', 'sequence']) or symbolic variables. Many downstream optimizations (constant folding, layer fusion) and specific hardware compilers (e.g., TensorRT, NPU compilers) require concrete static shapes to allocate memory and unroll loops efficiently. Locking these to [1, 512] satisfies the phase objective.",
+              "target_ops": [
+                "Graph Inputs"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport onnx\n\n# Load the graph\ngraph = gs.import_onnx(onnx.load(\"model.onnx\"))\n\n# Define target static values\nTARGET_BATCH = 1\nTARGET_SEQLEN = 512\n\n# Iterate through graph inputs and lock shapes\nfor inp in graph.inputs:\n    # Assuming standard NLP inputs like input_ids, attention_mask, token_type_ids\n    # which usually have shape [batch, seq_len]\n    if len(inp.shape) == 2:\n        print(f\"Locking input '{inp.name}' from {inp.shape} to [{TARGET_BATCH}, {TARGET_SEQLEN}]\")\n        inp.shape = [TARGET_BATCH, TARGET_SEQLEN]\n    \n    # Handle 3D inputs if present (rare for base inputs, but possible)\n    elif len(inp.shape) == 3:\n        print(f\"Locking input '{inp.name}' from {inp.shape} to [{TARGET_BATCH}, {TARGET_SEQLEN}, {inp.shape[2]}]\")\n        inp.shape = [TARGET_BATCH, TARGET_SEQLEN, inp.shape[2]]\n\n# Cleanup and save\ngraph.cleanup().toposort()\nonnx.save(gs.export_onnx(graph), \"model_static.onnx\")",
+              "expected_effect": "All graph input tensors will have concrete integer dimensions instead of strings or symbolic variables. This allows shape inference to propagate concrete values throughout the entire graph.",
+              "validation_steps": [
+                "Load the modified model in Netron or ONNX Python API.",
+                "Inspect `graph.input` to ensure shapes are strictly integers (e.g., [1, 512]).",
+                "Run `onnx.shape_inference.infer_shapes` to ensure no shape mismatches occur downstream."
+              ],
+              "manual_checks": [
+                "Verify if the model has auxiliary inputs (like 'position_ids') that might require specific values rather than just shape changes.",
+                "Check if the model relies on specific sequence lengths for positional embeddings (e.g., if the model was trained with max_len=128, forcing 512 might break logic)."
+              ],
+              "risk_level": "low",
+              "confidence": 0.95
+            },
+            {
+              "suggestion_id": "P1-S2",
+              "summary": "Fold Shape nodes immediately after static injection",
+              "rationale": "Once inputs are static, `Shape` nodes operating on them become constant. Folding these immediately prevents 'ghost' dynamic paths where the graph still calculates shapes at runtime, which can block further optimizations.",
+              "target_ops": [
+                "Shape",
+                "Gather",
+                "Cast"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport onnx\nimport numpy as np\n\n# Load graph (assumed to have static inputs applied from P1-S1)\ngraph = gs.import_onnx(onnx.load(\"model_static.onnx\"))\n\n# Simple constant folding pass specifically for Shape nodes\n# This is a lightweight fold; full folding happens in later phases\nfor node in graph.nodes:\n    if node.op == \"Shape\":\n        inp_tensor = node.inputs[0]\n        # If the input tensor has a fully known static shape\n        if inp_tensor.shape and all(isinstance(d, int) for d in inp_tensor.shape):\n            # Create a constant tensor with the shape values\n            shape_const = gs.Constant(name=f\"{node.name}_const\", values=np.array(inp_tensor.shape, dtype=np.int64))\n            # Replace the output of the Shape node with this constant\n            node.outputs[0].inputs = [] # disconnect old\n            node.outputs[0].become(shape_const)\n\ngraph.cleanup().toposort()\n",
+              "expected_effect": "Nodes that dynamically calculate the input shape (e.g., `Shape(input_ids)`) are replaced by constant tensors containing `[1, 512]`. This severs dependencies on dynamic shape logic.",
+              "validation_steps": [
+                "Verify that `Shape` nodes connected directly to graph inputs have been removed or disconnected.",
+                "Ensure the graph is still valid using `onnx.checker.check_model`."
+              ],
+              "manual_checks": [
+                "Ensure that `Gather` operations acting on these Shape nodes (often used to extract just batch or seq_len) are correctly resolving to scalar constants in subsequent folding passes."
+              ],
+              "risk_level": "low",
+              "confidence": 0.85
+            }
+          ],
+          "overall_risk": "low",
+          "notes": "This phase is foundational. If static shapes are incorrect here (e.g., mismatching the model's internal positional embedding size), all subsequent constant folding will be invalid."
+        }
+      },
+      {
+        "phase_id": "P2",
+        "name": "Shape Subgraph Folding",
+        "success": true,
+        "suggestions": {
+          "phase_id": "P2",
+          "phase_name": "Shape Subgraph Folding",
+          "suggestions": [
+            {
+              "suggestion_id": "SUG-P2-001",
+              "summary": "Fold Shape-Gather-Cast-Reshape subgraphs into Constant Reshapes",
+              "rationale": "The model contains patterns where the shape of a tensor is dynamically calculated (using `Shape`, `Gather`, `Cast`, etc.) and then fed into a `Reshape` op. Since the input dimensions are now static, these calculations are redundant. We can pre-calculate the target shape and replace the dynamic input with a static `Constant` initializer.",
+              "target_ops": [
+                "Reshape",
+                "Shape",
+                "Gather",
+                "Cast",
+                "Concat",
+                "Slice"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport numpy as np\n\ndef fold_shape_subgraphs(graph):\n    # 1. Constant folding: Evaluate the graph to resolve shape calculations\n    # This relies on the graph having static inputs or sufficient shape info.\n    # We use a lightweight constant folding pass provided by GS or a custom one.\n    \n    # A robust approach for specific Reshape patterns:\n    reshape_nodes = [n for n in graph.nodes if n.op == 'Reshape']\n    \n    count = 0\n    for node in reshape_nodes:\n        # Check if the second input (shape) is not an initializer (i.e., it's computed)\n        if len(node.inputs) > 1 and not isinstance(node.inputs[1], gs.Constant):\n            shape_tensor = node.inputs[1]\n            \n            # Attempt to evaluate the subgraph leading to 'shape_tensor'\n            # In a full implementation, we would trace back and evaluate.\n            # Here, we assume a helper function `evaluate_shape_subgraph` exists\n            # or we rely on the graph.fold_constants() method if inputs are static.\n            \n            # Simplified approach: If the graph inputs are fixed, we can try to fold everything.\n            pass\n\n    # The most effective GS method for this specific phase is usually:\n    graph.fold_constants().cleanup()\n    \n    # However, sometimes 'Shape' ops connected to graph inputs don't fold automatically\n    # if the graph inputs don't have data, only shapes. \n    # We explicitly replace Shape ops with Constants if the input shape is known.\n    for node in graph.nodes:\n        if node.op == 'Shape':\n            inp = node.inputs[0]\n            if inp.shape is not None and all(isinstance(d, int) for d in inp.shape):\n                # Create a constant for this shape\n                shape_const = gs.Constant(name=f\"{node.name}_const\", values=np.array(inp.shape, dtype=np.int64))\n                # Re-route outputs\n                for out in node.outputs:\n                    out.inputs = [] # disconnect from Shape\n                    # We need to find who uses 'out' and replace it with 'shape_const'\n                    # But GS handles this by replacing the tensor in the graph\n                    # Actually, easier to just replace the node output tensor's producer\n                    pass \n                \n                # Better GS pattern:\n                # Replace the output tensor of the Shape node with the Constant tensor\n                # But we must ensure the downstream nodes accept the Constant.\n                node.outputs[0].to_constant(np.array(inp.shape, dtype=np.int64))\n    \n    # Run standard cleanup to remove the now-dangling Gather/Cast/Slice nodes\n    graph.cleanup()\n    return graph",
+              "expected_effect": "Nodes calculating shapes (Shape, Gather, Cast, Slice, Concat) feeding into Reshape ops will be removed. The second input of Reshape ops will become a Constant (Initializer).",
+              "validation_steps": [
+                "Inspect all 'Reshape' nodes in the graph.",
+                "Verify that `node.inputs[1]` (the shape input) is an instance of `gs.Constant` for all Reshape nodes.",
+                "Check that the total node count has decreased, specifically for 'Shape', 'Gather', and 'Cast' ops."
+              ],
+              "manual_checks": [
+                "Ensure that the folded constants match the expected dimensions for the static input size.",
+                "Watch out for 'Reshape' ops where a dimension is '-1'. Folding might resolve this to a concrete number, which is usually fine but strictly changes the graph from dynamic to static."
+              ],
+              "risk_level": "low",
+              "confidence": 0.9
+            },
+            {
+              "suggestion_id": "SUG-P2-002",
+              "summary": "Explicitly Fix Known Dynamic Reshapes in Encoder/SelfAttention",
+              "rationale": "The region context highlights specific Reshape nodes in `encoder/block.*/layer.*/SelfAttention` (e.g., `/encoder/block.0/layer.0/SelfAttention/Reshape`). These often reshape Q/K/V matrices. If generic constant folding fails due to missing input data, we manually force these shape inputs to be constants based on the known model config (e.g., T5 Small/Base hidden sizes).",
+              "target_ops": [
+                "Reshape"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport numpy as np\n\ndef fix_attention_reshapes(graph):\n    # Configuration for T5-Small (example values, adjust for specific model)\n    # num_heads = 8, d_kv = 64, batch = 1 (static), seq_len = 512 (static)\n    # This is a fallback if automatic folding fails.\n    \n    # Map of node names to target shapes\n    # Note: The user must verify these shapes against P1 static dims.\n    target_shapes = {\n        \"/encoder/block.0/layer.0/SelfAttention/Reshape\": np.array([1, 512, 8, 64], dtype=np.int64),\n        \"/encoder/block.0/layer.0/SelfAttention/Reshape_1\": np.array([1, 512, 8, 64], dtype=np.int64),\n        \"/encoder/block.0/layer.0/SelfAttention/Reshape_2\": np.array([1, 512, 8, 64], dtype=np.int64)\n    }\n\n    for node in graph.nodes:\n        if node.name in target_shapes:\n            target_shape = target_shapes[node.name]\n            print(f\"Manually setting shape for {node.name} to {target_shape}\")\n            \n            # Create a new constant tensor\n            const_name = f\"{node.name}_target_shape_const\"\n            new_shape_const = gs.Constant(name=const_name, values=target_shape)\n            \n            # Replace the second input (index 1) of the Reshape\n            node.inputs[1] = new_shape_const\n            \n    graph.cleanup()\n    return graph",
+              "expected_effect": "Specific Reshape nodes in the SelfAttention blocks will have their shape inputs replaced by hardcoded Constants, severing the dependency on dynamic shape calculation subgraphs.",
+              "validation_steps": [
+                "Verify that the targeted Reshape nodes (e.g., .../SelfAttention/Reshape) now have a Constant as input[1].",
+                "Run shape inference to ensure the new static shapes are compatible with downstream MatMul ops."
+              ],
+              "manual_checks": [
+                "Verify the `target_shapes` dictionary values match the static dimensions defined in Phase P1.",
+                "Check if the model has multiple blocks (block.1, block.2, etc.) and extend the logic to cover all of them if necessary."
+              ],
+              "risk_level": "medium",
+              "confidence": 0.7
+            }
+          ],
+          "overall_risk": "low",
+          "notes": "This phase assumes that the input dimensions are now static (fixed) following Phase P1. The goal is to remove the overhead of calculating shapes at runtime and to enable further optimizations by TensorRT/ONNX Runtime that require static shapes."
+        }
+      },
+      {
+        "phase_id": "P3",
+        "name": "Unsupported Op Replacement",
+        "success": true,
+        "suggestions": {
+          "phase_id": "P3",
+          "phase_name": "Unsupported Op Replacement",
+          "suggestions": [
+            {
+              "suggestion_id": "S1-Where-Decomposition",
+              "summary": "Replace 'Where' node with arithmetic masking (Cast -> Mul -> Add)",
+              "rationale": "The 'Where' operation is often unsupported on specific hardware accelerators (e.g., older NPUs or DSPs). In the context of attention masking, 'Where' usually selects between a calculated attention score and a large negative masking value based on a boolean mask. This logic can be mathematically replicated using: `Output = (Mask * TrueVal) + ((1 - Mask) * FalseVal)`. Since the condition input is likely boolean, we cast it to the same float type as the data branches.",
+              "target_ops": [
+                "/encoder/block.0/layer.0/SelfAttention/Where"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport numpy as np\nimport onnx\n\ngraph = gs.import_onnx(onnx.load(\"model.onnx\"))\n\n# Locate the target Where node\nwhere_nodes = [n for n in graph.nodes if n.op == \"Where\" and n.name == \"/encoder/block.0/layer.0/SelfAttention/Where\"]\n\nfor node in where_nodes:\n    # Inputs: 0=Condition, 1=X (True branch), 2=Y (False branch)\n    cond_tensor = node.inputs[0]\n    x_tensor = node.inputs[1]\n    y_tensor = node.inputs[2]\n    output_tensor = node.outputs[0]\n\n    # Step 1: Cast Condition (Bool) to Float (same type as X)\n    # Note: Assuming X is float32. Adjust 'to' parameter if FP16.\n    cond_float = gs.Variable(name=f\"{cond_tensor.name}_float\", dtype=np.float32)\n    cast_node = gs.Node(op=\"Cast\", inputs=[cond_tensor], outputs=[cond_float], attrs={\"to\": onnx.TensorProto.FLOAT})\n    \n    # Step 2: Calculate (Mask * X)\n    # This keeps X where Mask is 1 (True)\n    mul_x_out = gs.Variable(name=f\"{node.name}_mul_x\", dtype=np.float32)\n    mul_x_node = gs.Node(op=\"Mul\", inputs=[cond_float, x_tensor], outputs=[mul_x_out])\n\n    # Step 3: Calculate (1 - Mask)\n    # Create a constant '1.0'\n    one_const = gs.Constant(name=f\"{node.name}_one\", values=np.array(1.0, dtype=np.float32))\n    sub_out = gs.Variable(name=f\"{node.name}_sub_mask\", dtype=np.float32)\n    sub_node = gs.Node(op=\"Sub\", inputs=[one_const, cond_float], outputs=[sub_out])\n\n    # Step 4: Calculate ((1 - Mask) * Y)\n    # This keeps Y where Mask is 0 (False)\n    mul_y_out = gs.Variable(name=f\"{node.name}_mul_y\", dtype=np.float32)\n    mul_y_node = gs.Node(op=\"Mul\", inputs=[sub_out, y_tensor], outputs=[mul_y_out])\n\n    # Step 5: Add the two branches\n    # Output = (Mask * X) + ((1 - Mask) * Y)\n    add_node = gs.Node(op=\"Add\", inputs=[mul_x_out, mul_y_out], outputs=[output_tensor])\n\n    # Add new nodes to graph and clear the old Where node\n    graph.nodes.extend([cast_node, mul_x_node, sub_node, mul_y_node, add_node])\n    node.outputs.clear()\n\n# Cleanup\ngraph.cleanup().toposort()\ngraph.save(\"model_modified.onnx\")",
+              "expected_effect": "The 'Where' node will be removed and replaced by a subgraph of Cast, Mul, Sub, and Add operations. The output tensor name remains unchanged to preserve downstream connectivity.",
+              "validation_steps": [
+                "Load the modified ONNX model and verify that the node count for 'Where' is 0.",
+                "Run inference on the original and modified models with identical inputs.",
+                "Compare the output tensor '/encoder/block.0/layer.0/SelfAttention/Where_output_0' for numerical equivalence (tolerance < 1e-5)."
+              ],
+              "manual_checks": [
+                "Verify the data type of the 'X' and 'Y' inputs to ensure the Cast operation targets the correct float precision (Float32 vs Float16).",
+                "Check if the 'Condition' input is strictly boolean. If it is already float (0.0/1.0), the Cast node is redundant but harmless."
+              ],
+              "risk_level": "low",
+              "confidence": 0.9
+            }
+          ],
+          "overall_risk": "low",
+          "notes": "This transformation is standard for deploying Transformer models to DSPs or older accelerators that lack control flow ops like 'Where'. The arithmetic replacement is numerically stable for standard attention masking values."
+        }
+      },
+      {
+        "phase_id": "P4",
+        "name": "Int64 to Int32 Casting",
+        "success": true,
+        "suggestions": {
+          "phase_id": "P4",
+          "phase_name": "Int64 to Int32 Casting",
+          "suggestions": [
+            {
+              "suggestion_id": "P4-S1",
+              "summary": "Downcast Gather Indices to Int32",
+              "rationale": "The MLA hardware often requires indices for Gather operations to be in Int32 format. The current graph likely uses Int64 (default for many frameworks like PyTorch). This suggestion scans all Gather nodes and casts their indices (input[1]) to Int32 if they are currently Int64.",
+              "target_ops": [
+                "Gather"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport numpy as np\nimport onnx\n\ndef downcast_gather_indices(graph):\n    for node in graph.nodes:\n        if node.op == 'Gather':\n            indices_tensor = node.inputs[1]\n            \n            # Check if indices are Int64\n            if indices_tensor.dtype == np.int64:\n                print(f\"Downcasting indices for Gather node: {node.name}\")\n                \n                # If the input is a Constant, modify it directly\n                if isinstance(indices_tensor, gs.Constant):\n                    indices_tensor.values = indices_tensor.values.astype(np.int32)\n                    indices_tensor.dtype = np.int32\n                \n                # If it's a Variable/Tensor, insert a Cast node\n                else:\n                    # Create a new variable for the cast output\n                    cast_out = gs.Variable(name=f\"{indices_tensor.name}_int32\", dtype=np.int32)\n                    \n                    # Create the Cast node\n                    cast_node = gs.Node(op=\"Cast\", \n                                        inputs=[indices_tensor], \n                                        outputs=[cast_out],\n                                        attrs={\"to\": onnx.TensorProto.INT32})\n                    \n                    # Insert the node into the graph\n                    graph.nodes.append(cast_node)\n                    \n                    # Update the Gather node to use the new cast output\n                    node.inputs[1] = cast_out\n    \n    # Cleanup to ensure topological sort\n    graph.cleanup().toposort()\n    return graph",
+              "expected_effect": "All Gather operations will receive Int32 indices. Constant indices will be converted in place; dynamic indices will have a Cast node inserted upstream.",
+              "validation_steps": [
+                "Iterate through all Gather nodes in the modified graph.",
+                "Inspect input[1] (indices) for each Gather node.",
+                "Assert that input[1].dtype is numpy.int32."
+              ],
+              "manual_checks": [
+                "Verify that the range of values in the indices does not exceed the limits of Int32 (approx +/- 2 billion), which is extremely unlikely for embedding lookups or sequence positions."
+              ],
+              "risk_level": "low",
+              "confidence": 0.9
+            },
+            {
+              "suggestion_id": "P4-S2",
+              "summary": "Downcast Slice Inputs (Starts, Ends, Axes, Steps) to Int32",
+              "rationale": "Similar to Gather, Slice operations in ONNX take 'starts', 'ends', 'axes', and 'steps' as inputs. While ONNX spec allows Int64, specific accelerators often require Int32 for these control inputs.",
+              "target_ops": [
+                "Slice"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport numpy as np\nimport onnx\n\ndef downcast_slice_inputs(graph):\n    for node in graph.nodes:\n        if node.op == 'Slice':\n            # Slice inputs: data, starts, ends, axes, steps\n            # We need to check inputs at indices 1, 2, 3, 4 if they exist\n            for i in range(1, len(node.inputs)):\n                inp = node.inputs[i]\n                if inp.dtype == np.int64:\n                    print(f\"Downcasting input {i} for Slice node: {node.name}\")\n                    \n                    if isinstance(inp, gs.Constant):\n                        inp.values = inp.values.astype(np.int32)\n                        inp.dtype = np.int32\n                    else:\n                        cast_out = gs.Variable(name=f\"{inp.name}_int32\", dtype=np.int32)\n                        cast_node = gs.Node(op=\"Cast\", \n                                            inputs=[inp], \n                                            outputs=[cast_out],\n                                            attrs={\"to\": onnx.TensorProto.INT32})\n                        graph.nodes.append(cast_node)\n                        node.inputs[i] = cast_out\n\n    graph.cleanup().toposort()\n    return graph",
+              "expected_effect": "Inputs for 'starts', 'ends', 'axes', and 'steps' of Slice nodes will be converted to Int32.",
+              "validation_steps": [
+                "Iterate through all Slice nodes.",
+                "Check inputs at indices 1 through 4.",
+                "Assert that their data types are Int32."
+              ],
+              "manual_checks": [
+                "Ensure that no negative indices used for slicing (e.g., -1 for 'end') are corrupted by casting, though Int64->Int32 preserves sign for values within range."
+              ],
+              "risk_level": "low",
+              "confidence": 0.9
+            },
+            {
+              "suggestion_id": "P4-S3",
+              "summary": "Global Int64 to Int32 Cast Cleanup",
+              "rationale": "After specific ops are handled, there may be residual Cast nodes (e.g., Int32 -> Int64 -> Int32) or unnecessary Casts to Int64 that are no longer needed. This step removes redundant casts to Int64 if the consumer can accept Int32, or if the cast is immediately reversed.",
+              "target_ops": [
+                "Cast"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport onnx\n\ndef remove_redundant_int64_casts(graph):\n    # This is a simplification; a full implementation requires checking consumer constraints.\n    # Here we look for Cast(Int32->Int64) -> Cast(Int64->Int32) patterns and fuse them.\n    \n    nodes_to_remove = []\n    for node in graph.nodes:\n        if node.op == 'Cast' and node.attrs.get('to') == onnx.TensorProto.INT32:\n            parent = node.i()\n            if parent and parent.op == 'Cast' and parent.attrs.get('to') == onnx.TensorProto.INT64:\n                # We have IntX -> Int64 -> Int32.\n                # If IntX is Int32, we can bypass both.\n                grandparent_tensor = parent.inputs[0]\n                if grandparent_tensor.dtype == np.int32:\n                    print(f\"Removing redundant cast chain at {node.name}\")\n                    # Bypass: Connect grandparent directly to current node's output consumers\n                    # Note: In GS, we usually replace the input of the consumer.\n                    # Easier strategy: set node input to grandparent, remove parent if unused.\n                    node.inputs = [grandparent_tensor]\n                    # Now node is Cast(Int32->Int32), which is Identity. \n                    # The graph cleanup/folding pass usually handles Identity removal.\n    \n    graph.cleanup().toposort()\n    return graph",
+              "expected_effect": "Redundant casting chains (Int32->Int64->Int32) will be short-circuited, reducing graph complexity.",
+              "validation_steps": [
+                "Run a graph optimization pass (like onnx-simplifier) after applying this snippet to fully remove the Identity nodes created."
+              ],
+              "manual_checks": [
+                "Verify that the 'grandparent' tensor is indeed available and valid for the consumers of the final cast."
+              ],
+              "risk_level": "medium",
+              "confidence": 0.7
+            }
+          ],
+          "overall_risk": "low",
+          "notes": "This phase focuses on ensuring that index tensors used in Gather and Slice operations are Int32. Many accelerators prefer or require Int32 indices. The provided code iterates through the graph to identify Int64 inputs to these specific ops and inserts Cast nodes or modifies constants."
+        }
+      },
+      {
+        "phase_id": "P5",
+        "name": "Relative Position Bias Simplification",
+        "success": true,
+        "suggestions": {
+          "phase_id": "P5",
+          "phase_name": "Relative Position Bias Simplification",
+          "suggestions": [
+            {
+              "suggestion_id": "S1",
+              "summary": "Constant-fold Relative Position Bias Subgraph",
+              "rationale": "The relative position bias calculation in T5 models often involves a complex subgraph of `Where`, `Add`, `Gather`, and `Slice` operations that depend on sequence length. If the sequence length is static (e.g., fixed at compile time), this entire subgraph produces a constant tensor. Folding this into a single `Constant` node eliminates dynamic indexing operations that frequently break hardware compilers.",
+              "target_ops": [
+                "/encoder/block.0/layer.0/SelfAttention/relative_attention_bias/Gather",
+                "/encoder/block.0/layer.0/SelfAttention/Slice",
+                "/encoder/block.0/layer.0/SelfAttention/Add_2"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport numpy as np\nimport onnx\n\ndef fold_relative_bias(graph):\n    # Identify the root of the relative bias calculation\n    # Usually ends at an Add node before the attention scores are added\n    # In the context: /encoder/block.0/layer.0/SelfAttention/Add_2\n    \n    bias_add_node = None\n    for node in graph.nodes:\n        if node.name == \"/encoder/block.0/layer.0/SelfAttention/Add_2\":\n            bias_add_node = node\n            break\n    \n    if not bias_add_node:\n        print(\"Target bias add node not found.\")\n        return\n\n    # The input to this Add node is the computed bias (Slice_output_0)\n    # We want to evaluate the subgraph leading to this input.\n    bias_input_tensor = bias_add_node.inputs[0]\n    \n    # Check if the subgraph is constant-foldable (requires static shapes/inputs)\n    # For this snippet, we assume the user provides the pre-computed bias numpy array\n    # or we simulate the subgraph evaluation if inputs are constant.\n    \n    # Heuristic: If the graph has static input shapes, we can infer the shape of the bias.\n    # T5 relative bias shape is typically (1, num_heads, seq_len, seq_len)\n    \n    # Placeholder for the actual computed value. \n    # In a real scenario, use onnx.shape_inference or a partial run to get this value.\n    # Here we demonstrate replacing the subgraph with a Constant.\n    \n    # Let's assume we calculated the bias tensor 'computed_bias_np'\n    # computed_bias_np = ... (logic to evaluate the subgraph)\n    \n    # For safety in this snippet, we will look for the Gather node and check if its indices are constant.\n    gather_node = [n for n in graph.nodes if n.name == \"/encoder/block.0/layer.0/SelfAttention/relative_attention_bias/Gather\"][0]\n    \n    # If the indices input to Gather is a Constant, we can fold immediately.\n    if isinstance(gather_node.inputs[1], gs.Constant):\n        print(\"Folding constant relative attention bias...\")\n        \n        # 1. Get the embedding weight\n        table_weight = gather_node.inputs[0].values\n        indices = gather_node.inputs[1].values\n        \n        # 2. Perform Gather\n        gathered = np.take(table_weight, indices, axis=0)\n        \n        # 3. Perform subsequent Slice/Transpose operations found in the subgraph\n        # (Simplified: assuming the Slice just extracts the relevant sequence length)\n        # In T5, there is often a Slice node after Gather to match seq_len.\n        \n        # Create a new Constant node with the final folded value\n        # We replace the output of the Slice node (which feeds into Add_2)\n        slice_node = [n for n in graph.nodes if n.name == \"/encoder/block.0/layer.0/SelfAttention/Slice\"][0]\n        \n        # Create the constant tensor\n        # Note: You must ensure the shape matches the target static sequence length\n        folded_bias_constant = gs.Constant(name=\"folded_relative_bias\", values=gathered)\n        \n        # Rewire the Add node to use this constant\n        bias_add_node.inputs[0] = folded_bias_constant\n        \n        # Cleanup: The previous subgraph (Gather, Slice, etc.) will be pruned by cleanup()\n        \n    else:\n        print(\"Indices are not constant. Ensure static shapes are enforced upstream or inputs are folded first.\")\n\n# Apply\n# fold_relative_bias(graph)\n# graph.cleanup()",
+              "expected_effect": "The complex subgraph involving `Where`, `Gather`, and `Slice` will be replaced by a single `Constant` node containing the pre-computed relative position bias tensor. This removes dynamic indexing operations.",
+              "validation_steps": [
+                "Inspect the graph to ensure `/encoder/block.0/layer.0/SelfAttention/Add_2` now takes a Constant as input 0.",
+                "Verify that the `Gather` and `Slice` nodes related to relative attention bias are removed after cleanup.",
+                "Run inference to confirm the attention scores remain numerically identical."
+              ],
+              "manual_checks": [
+                "Confirm the static sequence length used for folding matches the deployment target.",
+                "Check if the relative bias is shared across layers (T5 often shares the bias table but computes the bias per layer or shares the computed bias). If shared, ensure the constant is reused or duplicated correctly."
+              ],
+              "risk_level": "high",
+              "confidence": 0.7
+            },
+            {
+              "suggestion_id": "S2",
+              "summary": "Replace Dynamic Slice with Static Slice",
+              "rationale": "The `Slice` operation at `/encoder/block.0/layer.0/SelfAttention/Slice` uses dynamic inputs (Constant nodes that might be derived from shape inference) to crop the relative bias to the current sequence length. If the model is exported with static shapes, these inputs should be converted to static attributes of the Slice node to allow compiler optimizations.",
+              "target_ops": [
+                "/encoder/block.0/layer.0/SelfAttention/Slice"
+              ],
+              "code_snippet": "import onnx_graphsurgeon as gs\nimport numpy as np\n\ndef staticize_slice(graph):\n    slice_node = None\n    for node in graph.nodes:\n        if node.name == \"/encoder/block.0/layer.0/SelfAttention/Slice\":\n            slice_node = node\n            break\n            \n    if not slice_node:\n        return\n\n    # Check if inputs 1 (starts), 2 (ends), 3 (axes), 4 (steps) are Constant tensors\n    inputs = slice_node.inputs\n    if len(inputs) >= 3 and all(isinstance(i, gs.Constant) for i in inputs[1:]):\n        print(\"Converting dynamic Slice inputs to static attributes...\")\n        \n        starts = inputs[1].values.tolist()\n        ends = inputs[2].values.tolist()\n        axes = inputs[3].values.tolist() if len(inputs) > 3 else None\n        steps = inputs[4].values.tolist() if len(inputs) > 4 else None\n        \n        # Create a new Slice node with attributes instead of inputs (for older opsets) \n        # OR keep inputs but ensure they are strictly treated as constants by the compiler.\n        # However, many compilers prefer the inputs to be disconnected if they are attributes.\n        # Modern ONNX Slice uses inputs, but we can ensure they are simple 1D constants.\n        \n        # If the goal is to fix the shape, we can replace Slice with Identity if the shapes match,\n        # or hardcode the values if they were variable nodes previously.\n        \n        # Here, we ensure the inputs are strictly 1D Int64 constants, which is required by ONNX spec.\n        # Sometimes exporters leave them as 0-D scalars or wrong types.\n        \n        inputs[1].values = np.array(starts, dtype=np.int64)\n        inputs[2].values = np.array(ends, dtype=np.int64)\n        if len(inputs) > 3: inputs[3].values = np.array(axes, dtype=np.int64)\n        if len(inputs) > 4: inputs[4].values = np.array(steps, dtype=np.int64)\n\n# Apply\n# staticize_slice(graph)",
+              "expected_effect": "Ensures the `Slice` operation inputs are strictly typed constants, reducing ambiguity for the compiler regarding the output shape.",
+              "validation_steps": [
+                "Verify Slice inputs are Constant nodes with int64 data type.",
+                "Check if the Slice output shape is now statically inferable by ONNX shape inference."
+              ],
+              "manual_checks": [
+                "Verify that the `ends` values in the Slice match the static sequence length."
+              ],
+              "risk_level": "medium",
+              "confidence": 0.8
+            }
+          ],
+          "overall_risk": "medium",
+          "notes": "The primary recommendation is S1 (Constant Folding). S2 is a fallback if full folding is not possible due to partial dynamic requirements. T5's relative position bias is a known pain point for static compilers; pre-computing it for a max_seq_len is the standard solution."
+        }
+      }
+    ]
+  },
+  "total_time_seconds": 124.43259191513062,
+  "phase_times": {
+    "diagnosis": 15.189929008483887,
+    "planning": 14.24624490737915,
+    "execution": 94.99369192123413,
+    "evaluation": 9.5367431640625e-07
+  },
+  "suggestions_path": "react_results/mt5_small_encoder_surgery_suggestions.json",
+  "report_path": "react_results/mt5_small_encoder_report.json"
+}

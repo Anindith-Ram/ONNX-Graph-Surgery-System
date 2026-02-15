@@ -453,45 +453,35 @@ def cached_gemini_call(
     temperature: float = 0.3,
     max_tokens: int = 2000,
     cache: Optional[ResponseCache] = None,
-    generate_fn = None  # Legacy parameter for backward compatibility
+    generate_fn=None,
 ) -> Optional[str]:
     """
     Wrapper for Gemini calls with caching.
-    
+
     Args:
         prompt: The prompt to send
         api_key: Gemini API key (required if generate_fn not provided)
         model_name: Model name (default: "models/gemini-3-pro-preview")
-        temperature: Temperature for generation (default: 0.3)
-        max_tokens: Maximum tokens (default: 2000)
+        temperature: Temperature for generation
+        max_tokens: Maximum tokens
         cache: Optional cache instance (uses global if None)
-        generate_fn: Optional function that takes prompt and returns response (legacy)
-        
+        generate_fn: Optional callable(prompt) -> str (legacy)
+
     Returns:
-        Response string
+        Response string, or None on failure
     """
     if cache is None:
         cache = get_cache()
-    
-    # Check cache
+
     cached = cache.get(prompt)
-    # #region agent log
-    import json
-    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"response_cache.py:393","message":"Cache check","data":{"cache_hit":cached is not None,"cached_length":len(cached) if cached else 0},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-    # #endregion
     if cached is not None:
         return cached
-    
-    # Make actual API call
+
     try:
         if generate_fn:
-            # Legacy mode: use provided function
             response = generate_fn(prompt)
         else:
-            # New mode: use API key directly
             if not api_key:
-                # Try to get from environment or config
                 api_key = os.getenv('GEMINI_API_KEY')
                 if not api_key:
                     try:
@@ -500,28 +490,13 @@ def cached_gemini_call(
                             api_key = GEMINI_API_KEY
                     except ImportError:
                         pass
-            
+
             if not api_key:
                 raise ValueError("API key required for Gemini calls")
-            
-            # Configure and call Gemini
+
             genai.configure(api_key=api_key)
-            
-            # Use only gemini-3-pro-preview
-            model_names_to_try = [
-                "models/gemini-3-pro-preview"  # Only model to use
-            ]
-            
-            response = None
-            last_error = None
-            
-            # #region agent log
-            import json
-            with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"response_cache.py:428","message":"About to create model","data":{"model_name":model_names_to_try[0],"prompt_length":len(prompt),"prompt_preview":prompt[:100]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-            # #endregion
-            
-            # Configure safety settings to allow technical content
+
+            # Safety settings to allow technical content
             try:
                 from google.generativeai.types import HarmCategory, HarmBlockThreshold
                 safety_settings = {
@@ -537,137 +512,43 @@ def cached_gemini_call(
                     "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
                     "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
                 }
-            
-            for try_model_name in model_names_to_try:
-                try:
-                    # #region agent log
-                    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"A","location":"response_cache.py:432","message":"Creating GenerativeModel","data":{"model_name":try_model_name,"has_safety_settings":True,"safety_settings_keys":list(safety_settings.keys())},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                    # #endregion
-                    
-                    # Set safety settings at MODEL level
-                    model = genai.GenerativeModel(
-                        try_model_name,
-                        safety_settings=safety_settings
-                    )
-                    
-                    generation_config = {
-                        'temperature': temperature,
-                        'max_output_tokens': max_tokens,
-                    }
-                    
-                    # #region agent log
-                    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"B","location":"response_cache.py:443","message":"Calling generate_content","data":{"has_safety_in_config":True,"safety_settings_applied":True,"prompt_preview":prompt[:200]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                    # #endregion
-                    
-                    response_obj = model.generate_content(
-                        prompt,
-                        generation_config=generation_config
-                    )
-                    
-                    # Extract text - handle finish_reason=2 gracefully (even with BLOCK_NONE, .text may fail)
-                    response = None
-                    finish_reason_val = None
-                    
-                    # #region agent log
-                    has_candidates = False
-                    candidate_count = 0
-                    has_text_attr = False
-                    if hasattr(response_obj, 'candidates') and response_obj.candidates:
-                        has_candidates = True
-                        candidate_count = len(response_obj.candidates)
-                        if candidate_count > 0 and hasattr(response_obj.candidates[0], 'finish_reason'):
-                            finish_reason_val = response_obj.candidates[0].finish_reason
-                    # Check for .text attribute safely (don't use hasattr as it may trigger the accessor)
-                    try:
-                        # Just check if attribute exists without accessing it
-                        has_text_attr = 'text' in dir(response_obj)
-                    except:
-                        has_text_attr = False
-                    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"response_cache.py:485","message":"Response received","data":{"finish_reason":finish_reason_val,"has_candidates":has_candidates,"candidate_count":candidate_count,"has_text_attr":has_text_attr},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                    # #endregion
-                    
-                    # Try .text accessor first
-                    try:
-                        response = response_obj.text
-                    except Exception as text_error:
-                        # #region agent log
-                        with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"response_cache.py:504","message":".text accessor failed, trying parts","data":{"error_type":type(text_error).__name__,"error_msg":str(text_error)[:200],"has_candidates":hasattr(response_obj,'candidates') and bool(response_obj.candidates)},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                        # #endregion
-                        # If .text fails (common with finish_reason=2 even with BLOCK_NONE), extract from candidates/parts
-                        if hasattr(response_obj, 'candidates') and response_obj.candidates:
-                            candidate = response_obj.candidates[0]
-                            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                                parts_text = []
-                                parts_count = len(candidate.content.parts)
-                                parts_info = []
-                                for i, part in enumerate(candidate.content.parts):
-                                    part_type = type(part).__name__
-                                    has_text_attr = hasattr(part, 'text')
-                                    part_text_len = 0
-                                    if has_text_attr:
-                                        try:
-                                            part_text = part.text
-                                            part_text_len = len(part_text) if part_text else 0
-                                            parts_text.append(part_text)
-                                        except Exception as part_error:
-                                            part_text_len = -1  # Error accessing text
-                                    parts_info.append({"index": i, "type": part_type, "has_text": has_text_attr, "text_len": part_text_len})
-                                
-                                if parts_text:
-                                    response = ''.join(parts_text)
-                                    # #region agent log
-                                    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"response_cache.py:530","message":"Extracted from parts","data":{"parts_count":len(parts_text),"response_length":len(response)},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                                    # #endregion
-                                else:
-                                    # #region agent log
-                                    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"response_cache.py:535","message":"No parts with text found","data":{"parts_count":parts_count,"parts_info":parts_info},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                                    # #endregion
-                            else:
-                                # #region agent log
-                                with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"response_cache.py:525","message":"No content/parts in candidate","data":{"has_content":hasattr(candidate,'content') if hasattr(response_obj,'candidates') and response_obj.candidates else False},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                                # #endregion
-                        else:
-                            # #region agent log
-                            with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"response_cache.py:530","message":"No candidates in response","data":{},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                            # #endregion
-                    
-                    # #region agent log
-                    extraction_method = "text_attr" if response and hasattr(response_obj, 'text') and response == getattr(response_obj, 'text', None) else ("parts" if response else "failed")
-                    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"response_cache.py:545","message":"Text extracted","data":{"response_length":len(response) if response else 0,"response_preview":response[:100] if response else None,"extraction_method":extraction_method},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                    # #endregion
-                    
-                    # If we still don't have a response after all attempts, this is an error
-                    if not response:
-                        raise ValueError(f"Could not extract text from response (finish_reason={finish_reason_val}). Even with BLOCK_NONE safety settings, no text content was available.")
-                    
-                    # If successful, update model_name for caching
-                    if try_model_name != model_name:
-                        model_name = try_model_name
-                    break
-                except Exception as e:
-                    # #region agent log
-                    import traceback
-                    tb_lines = traceback.format_exc().split('\n')
-                    actual_location = [l for l in tb_lines if 'response_cache.py' in l and 'line' in l]
-                    loc_str = actual_location[0] if actual_location else "unknown"
-                    with open('/Users/anindithram/Documents/Automated Model Surgery/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"E","location":"response_cache.py:outer_exception","message":"Exception in model call (outer handler)","data":{"error_type":type(e).__name__,"error_msg":str(e)[:200],"traceback_location":loc_str[:100]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                    # #endregion
-                    last_error = e
-                    continue
-            
-            if response is None:
-                raise last_error or ValueError(f"Failed to call Gemini with any model name")
-        
+
+            model = genai.GenerativeModel(
+                model_name,
+                safety_settings=safety_settings,
+            )
+
+            generation_config = {
+                'temperature': temperature,
+                'max_output_tokens': max_tokens,
+            }
+
+            response_obj = model.generate_content(
+                prompt,
+                generation_config=generation_config,
+            )
+
+            # Extract text with fallback to candidate parts
+            response = None
+            try:
+                response = response_obj.text
+            except Exception:
+                if hasattr(response_obj, 'candidates') and response_obj.candidates:
+                    candidate = response_obj.candidates[0]
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                        parts_text = []
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text'):
+                                try:
+                                    parts_text.append(part.text)
+                                except Exception:
+                                    pass
+                        if parts_text:
+                            response = ''.join(parts_text)
+
+            if not response:
+                raise ValueError("Could not extract text from Gemini response")
+
         if response:
             cache.set(prompt, response, model_name=model_name)
         return response

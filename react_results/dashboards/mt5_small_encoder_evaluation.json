@@ -1,0 +1,196 @@
+{
+  "model_name": "mt5_small_encoder",
+  "created_at": "2026-01-31T17:41:23.738058",
+  "summary": {
+    "status": "failed",
+    "compilation_success": false,
+    "single_lm_file": false,
+    "numerical_match": true,
+    "tolerance_category": "identical",
+    "overall_score": 30.0,
+    "compilation_score": 0.0,
+    "numerical_score": 100.0,
+    "strategic_score": 0.0,
+    "blockers_resolved": 0,
+    "blockers_remaining": 44,
+    "blocker_resolution_rate": 0.0,
+    "total_transformations": 0,
+    "successful_transformations": 0
+  },
+  "tier1_passed": false,
+  "tier2_passed": false,
+  "tier3_passed": true,
+  "transformation_details": [],
+  "error_analysis": [
+    {
+      "type": "StrategicEvaluation",
+      "message": "'BlockerResolutionScore' object has no attribute 'remaining_blockers'"
+    }
+  ],
+  "recommendations": [
+    "Address remaining MLA compatibility issues",
+    "Reduce graph splits (currently predicting 32 LM files)"
+  ],
+  "numerical_verification": {
+    "model_name": "mt5_small_encoder",
+    "max_absolute_difference": 0.0,
+    "mean_absolute_difference": 0.0,
+    "max_relative_difference": 0.0,
+    "outputs_match": true,
+    "all_shapes_match": true,
+    "tolerance_category": "identical",
+    "output_comparisons": [
+      {
+        "output_name": "output",
+        "shape_original": [
+          1,
+          10,
+          512
+        ],
+        "shape_modified": [
+          1,
+          10,
+          512
+        ],
+        "max_absolute_diff": 0.0,
+        "mean_absolute_diff": 0.0,
+        "max_relative_diff": 0.0,
+        "mean_relative_diff": 0.0,
+        "num_elements": 5120,
+        "num_different": 0,
+        "tolerance_category": "identical",
+        "shapes_match": true
+      },
+      {
+        "output_name": "output",
+        "shape_original": [
+          1,
+          10,
+          512
+        ],
+        "shape_modified": [
+          1,
+          10,
+          512
+        ],
+        "max_absolute_diff": 0.0,
+        "mean_absolute_diff": 0.0,
+        "max_relative_diff": 0.0,
+        "mean_relative_diff": 0.0,
+        "num_elements": 5120,
+        "num_different": 0,
+        "tolerance_category": "identical",
+        "shapes_match": true
+      },
+      {
+        "output_name": "output",
+        "shape_original": [
+          1,
+          10,
+          512
+        ],
+        "shape_modified": [
+          1,
+          10,
+          512
+        ],
+        "max_absolute_diff": 0.0,
+        "mean_absolute_diff": 0.0,
+        "max_relative_diff": 0.0,
+        "mean_relative_diff": 0.0,
+        "num_elements": 5120,
+        "num_different": 0,
+        "tolerance_category": "identical",
+        "shapes_match": true
+      }
+    ],
+    "num_test_samples": 3,
+    "tolerance_threshold": 0.0001,
+    "error_message": ""
+  },
+  "compilation_verification": {
+    "model_name": "mt5_small_encoder_modified",
+    "status": "will_not_compile",
+    "all_nodes_mla_compatible": false,
+    "single_lm_file": false,
+    "predicted_lm_files": 32,
+    "lm_file_reasons": [
+      "Multiple APU sections (32)"
+    ],
+    "node_mapping": {
+      "total_nodes": 544,
+      "nodes_on_mla": 500,
+      "nodes_on_cvu": 0,
+      "nodes_on_apu": 44,
+      "mla_percentage": 91.91176470588235,
+      "all_on_mla": false
+    },
+    "blocker_stats": {
+      "original_blockers": 44,
+      "remaining_blockers": 44,
+      "resolved_blockers": 0,
+      "resolution_rate": 0.0,
+      "all_resolved": false,
+      "blockers_by_op": {
+        "Reshape": 34,
+        "Gather": 2,
+        "Abs": 1,
+        "Less": 1,
+        "Cast": 2,
+        "Add": 2,
+        "Where": 1,
+        "Slice": 1
+      }
+    },
+    "unmapped_nodes": [],
+    "blockers_remaining": [
+      "Reshape:/Reshape",
+      "Reshape:/encoder/Reshape",
+      "Gather:/encoder/embed_tokens/Gather",
+      "Reshape:/encoder/block.0/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.0/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.0/layer.0/SelfAttention/Reshape_2",
+      "Abs:/encoder/block.0/layer.0/SelfAttention/Abs",
+      "Less:/encoder/block.0/layer.0/SelfAttention/Less",
+      "Cast:/encoder/block.0/layer.0/SelfAttention/Cast",
+      "Add:/encoder/block.0/layer.0/SelfAttention/Add",
+      "Cast:/encoder/block.0/layer.0/SelfAttention/Cast_2",
+      "Where:/encoder/block.0/layer.0/SelfAttention/Where",
+      "Add:/encoder/block.0/layer.0/SelfAttention/Add_1",
+      "Gather:/encoder/block.0/layer.0/SelfAttention/relative_attention_bias/Gather",
+      "Slice:/encoder/block.0/layer.0/SelfAttention/Slice",
+      "Reshape:/encoder/block.0/layer.0/SelfAttention/Reshape_3",
+      "Reshape:/encoder/block.1/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.1/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.1/layer.0/SelfAttention/Reshape_2",
+      "Reshape:/encoder/block.1/layer.0/SelfAttention/Reshape_3",
+      "Reshape:/encoder/block.2/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.2/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.2/layer.0/SelfAttention/Reshape_2",
+      "Reshape:/encoder/block.2/layer.0/SelfAttention/Reshape_3",
+      "Reshape:/encoder/block.3/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.3/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.3/layer.0/SelfAttention/Reshape_2",
+      "Reshape:/encoder/block.3/layer.0/SelfAttention/Reshape_3",
+      "Reshape:/encoder/block.4/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.4/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.4/layer.0/SelfAttention/Reshape_2",
+      "Reshape:/encoder/block.4/layer.0/SelfAttention/Reshape_3",
+      "Reshape:/encoder/block.5/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.5/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.5/layer.0/SelfAttention/Reshape_2",
+      "Reshape:/encoder/block.5/layer.0/SelfAttention/Reshape_3",
+      "Reshape:/encoder/block.6/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.6/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.6/layer.0/SelfAttention/Reshape_2",
+      "Reshape:/encoder/block.6/layer.0/SelfAttention/Reshape_3",
+      "Reshape:/encoder/block.7/layer.0/SelfAttention/Reshape",
+      "Reshape:/encoder/block.7/layer.0/SelfAttention/Reshape_1",
+      "Reshape:/encoder/block.7/layer.0/SelfAttention/Reshape_2",
+      "Reshape:/encoder/block.7/layer.0/SelfAttention/Reshape_3"
+    ],
+    "warnings": [
+      "Model will generate 32 LM files"
+    ]
+  }
+}

@@ -365,7 +365,8 @@ class RAGRetriever:
         query: str,
         model_category: Optional[str] = None,
         op_type: Optional[str] = None,
-        top_k: Optional[int] = None
+        top_k: Optional[int] = None,
+        mode: Optional[str] = None,
     ) -> RetrievedContext:
         """
         Retrieve relevant chunks for a query.
@@ -375,13 +376,20 @@ class RAGRetriever:
             model_category: Optional model category (YOLO, ViT, Transformer, etc.)
             op_type: Optional operation type to filter by
             top_k: Number of chunks to retrieve (overrides default)
+            mode: Retrieval mode -- ``"hybrid"`` (default when embeddings
+                  available), ``"semantic"``, or ``"keyword"``.
             
         Returns:
             RetrievedContext with relevant chunks
         """
         top_k = top_k or self.top_k
-        
-        if self.use_embeddings:
+
+        if mode is None:
+            mode = "hybrid" if self.use_embeddings else "keyword"
+
+        if mode == "hybrid" and self.use_embeddings:
+            return self._retrieve_hybrid(query, model_category, op_type, top_k)
+        elif mode == "semantic" and self.use_embeddings:
             return self._retrieve_semantic(query, model_category, op_type, top_k)
         else:
             return self._retrieve_keyword(query, model_category, op_type, top_k)
@@ -538,6 +546,57 @@ class RAGRetriever:
             scores=score_values
         )
     
+    # =========================================================================
+    # Hybrid Retrieval (Reciprocal Rank Fusion)
+    # =========================================================================
+
+    def _retrieve_hybrid(
+        self,
+        query: str,
+        model_category: Optional[str],
+        op_type: Optional[str],
+        top_k: int,
+        rrf_k: int = 60,
+    ) -> RetrievedContext:
+        """
+        Retrieve using reciprocal-rank fusion of semantic + keyword results.
+
+        For each chunk that appears in either list the RRF score is:
+            ``score = sum( 1 / (rrf_k + rank_i) )``
+        where ``rank_i`` is 1-based rank in the *i*-th result list.
+        Higher ``rrf_k`` dampens the effect of high ranks.
+        """
+        fetch_k = max(top_k * 3, 15)  # fetch more candidates for fusion
+
+        semantic_ctx = self._retrieve_semantic(query, model_category, op_type, fetch_k)
+        keyword_ctx = self._retrieve_keyword(query, model_category, op_type, fetch_k)
+
+        # Build chunk-id -> RRF score map
+        rrf_scores: Dict[str, float] = defaultdict(float)
+        chunk_map: Dict[str, Any] = {}  # chunk.id -> chunk
+
+        for rank, chunk in enumerate(semantic_ctx.chunks, start=1):
+            cid = chunk.id
+            rrf_scores[cid] += 1.0 / (rrf_k + rank)
+            chunk_map[cid] = chunk
+
+        for rank, chunk in enumerate(keyword_ctx.chunks, start=1):
+            cid = chunk.id
+            rrf_scores[cid] += 1.0 / (rrf_k + rank)
+            chunk_map[cid] = chunk
+
+        # Sort by fused score descending
+        sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)
+
+        result_chunks = [chunk_map[cid] for cid in sorted_ids[:top_k]]
+        result_scores = [rrf_scores[cid] for cid in sorted_ids[:top_k]]
+
+        return RetrievedContext(
+            query=query,
+            chunks=result_chunks,
+            scores=result_scores,
+        )
+
     @staticmethod
     def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
         """Compute cosine similarity between two vectors."""

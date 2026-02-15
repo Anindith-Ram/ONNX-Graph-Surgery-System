@@ -205,6 +205,9 @@ class TransformationRegion:
     status: RegionStatus = RegionStatus.PENDING
     attempts: List[TransformationAttempt] = field(default_factory=list)
     
+    # Blocker tracking
+    has_blockers: bool = False
+    
     # Results
     nodes_before: int = 0
     nodes_after: int = 0
@@ -223,6 +226,7 @@ class TransformationRegion:
             'fallback_strategies': self.fallback_strategies,
             'depends_on': self.depends_on,
             'required_by': self.required_by,
+            'has_blockers': self.has_blockers,
             'status': self.status.value,
             'attempts': [a.to_dict() for a in self.attempts],
             'nodes_before': self.nodes_before,
@@ -258,6 +262,7 @@ class TransformationRegion:
             fallback_strategies=data.get('fallback_strategies', []),
             depends_on=data.get('depends_on', []),
             required_by=data.get('required_by', []),
+            has_blockers=data.get('has_blockers', False),
             status=RegionStatus(data.get('status', 'pending')),
             attempts=attempts,
             nodes_before=data.get('nodes_before', 0),
@@ -645,7 +650,8 @@ def create_region_from_nodes(
     op_types: List[str],
     purpose: str,
     issue: str,
-    strategy: str
+    strategy: str,
+    has_blockers: bool = False
 ) -> TransformationRegion:
     """Create a transformation region from node information."""
     signature = SubgraphSignature.compute_from_ops(op_types)
@@ -658,7 +664,8 @@ def create_region_from_nodes(
         op_types=op_types,
         original_purpose=purpose,
         architectural_issue=issue,
-        recommended_strategy=strategy
+        recommended_strategy=strategy,
+        has_blockers=has_blockers
     )
 
 

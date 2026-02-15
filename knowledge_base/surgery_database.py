@@ -926,6 +926,82 @@ class SurgeryDatabase:
         self.surgery_templates.append(template)
         self._template_index[template.template_id] = template
     
+    def add_from_pipeline_result(
+        self,
+        surgery_history: List[Dict],
+        model_name: str,
+        model_category: str,
+    ) -> int:
+        """
+        Bulk-add transformation records from a pipeline run.
+
+        Parses the ``surgery_history`` produced by the execute node and
+        creates ``NodeTransformation`` records for each successful suggestion.
+
+        Args:
+            surgery_history: List of phase dicts with ``suggestions`` sub-lists.
+            model_name: Name of the model that was processed.
+            model_category: Architecture category (e.g. "Transformer").
+
+        Returns:
+            Number of transformation records added.
+        """
+        transformations: List[NodeTransformation] = []
+
+        for phase_entry in surgery_history:
+            phase_id = phase_entry.get("phase_id", "")
+            for suggestion in phase_entry.get("suggestions", []):
+                if not suggestion.get("success", False):
+                    continue
+
+                code = suggestion.get("code", "")
+                delta = suggestion.get("delta", {})
+                target_ops = suggestion.get("target_ops", [])
+
+                t = NodeTransformation(
+                    original_node_id=-1,
+                    original_node_name=suggestion.get("suggestion_id", phase_id),
+                    original_op_type=", ".join(target_ops) if target_ops else "mixed",
+                    graph_position=0.5,
+                    total_nodes_in_graph=0,
+                    action="replace",
+                    replacement_ops=list(delta.get("ops_added", {}).keys()),
+                    code_snippet=code,
+                    surgery_steps=[f"Applied in phase {phase_id}"],
+                    is_compilation_blocker=True,
+                    confidence=0.7,
+                    source_model=model_name,
+                )
+                transformations.append(t)
+
+        if transformations:
+            any_success = any(
+                s.get("success", False)
+                for entry in surgery_history
+                for s in entry.get("suggestions", [])
+            )
+            record = TransformationRecord(
+                model_name=model_name,
+                model_category=model_category,
+                compilation_success=any_success,
+                transformations=transformations,
+                nodes_removed=sum(
+                    len(t.get("delta", {}).get("nodes_removed", []))
+                    for entry in surgery_history
+                    for t in entry.get("suggestions", [])
+                    if t.get("success")
+                ),
+                nodes_added=sum(
+                    len(t.get("delta", {}).get("nodes_added", []))
+                    for entry in surgery_history
+                    for t in entry.get("suggestions", [])
+                    if t.get("success")
+                ),
+            )
+            self.add_transformation_record(record)
+
+        return len(transformations)
+
     def add_compilation_blocker(self, blocker: CompilationBlocker) -> None:
         """Add a compilation blocker reference."""
         self.compilation_blockers.append(blocker)
