@@ -248,5 +248,6 @@ python main.py react --api-key YOUR_KEY --model path/to/model.onnx
 - Check that `rag_data/surgery_database.json` has relevant transformation patterns
 
 ## License
-
+This project is NOT open source. Unauthorized use, modification, or distribution is strictly prohibited. 
+For inquiries regarding usage, please contact [anindith.ram@gmail.com].
 See [LICENSE](LICENSE) for details.
